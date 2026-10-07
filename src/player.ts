@@ -1,5 +1,6 @@
 import RAPIER, { type ColliderHandle, type World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { PLAYER_GROUPS } from './collision-groups';
 import { PLAYER_COLOR, PLAYER_SIZE } from './config';
 
 type PlayerParams = {
@@ -17,10 +18,11 @@ export const createPlayer = ({ world, scene }: PlayerParams): ColliderHandle => 
   // cuboid принимает ПОЛОВИНЫ размеров.
   // ActiveEvents.COLLISION_EVENTS — просим Rapier сообщать о столкновениях с этим коллайдером.
   // Без этого флага касание врага прошло бы молча: у самих врагов флага нет.
+  // Группа столкновений игрока — только живые враги (см. collision-groups.ts).
   const collider = world.createCollider(
-    RAPIER.ColliderDesc.cuboid(PLAYER_SIZE / 2, PLAYER_SIZE / 2, PLAYER_SIZE / 2).setActiveEvents(
-      RAPIER.ActiveEvents.COLLISION_EVENTS,
-    ),
+    RAPIER.ColliderDesc.cuboid(PLAYER_SIZE / 2, PLAYER_SIZE / 2, PLAYER_SIZE / 2)
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
+      .setCollisionGroups(PLAYER_GROUPS),
     body,
   );
 

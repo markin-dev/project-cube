@@ -1,11 +1,20 @@
 import type { ColliderHandle, RigidBody, World } from '@dimforge/rapier3d-compat';
-import type { Mesh, Scene } from 'three';
+import type { Mesh, Object3D, Scene } from 'three';
+import { FALL_REMOVE_HEIGHT } from './config';
 
-// Игровой объект = физическое тело (Rapier) + видимый меш (Three.js).
-// Физика двигает тело, а мы каждый кадр переносим его положение на меш.
+// Игровой объект = физическое тело (Rapier) + видимый объект (Three.js).
+// Физика двигает тело, а мы каждый кадр переносим его положение на видимый объект.
+// Object3D — любой объект сцены: и отдельный меш (снаряд), и группа из нескольких (враг).
 export type Entity = {
   body: RigidBody;
-  mesh: Mesh;
+  object: Object3D;
+};
+
+// Объект с кубом, который вращается вместе с телом (враги и их призраки).
+// Сам object при этом только двигается и не вращается — поэтому его дочерние объекты,
+// например полоска здоровья, не кувыркаются вместе с кубом.
+export type CubeEntity = Entity & {
+  cube: Mesh;
 };
 
 // Все объекты одного вида (враги, снаряды) храним в Map.
@@ -22,8 +31,8 @@ export type EntityContext<T extends Entity = Entity> = {
 };
 
 // Удаляет объект отовсюду: из физики, со сцены и из списка.
-// removeRigidBody удаляет и все коллайдеры, прикреплённые к телу, а scene.remove — меш вместе
-// с его дочерними объектами (например, полоской здоровья врага).
+// removeRigidBody удаляет и все коллайдеры, прикреплённые к телу, а scene.remove — объект вместе
+// с его дочерними объектами (например, кубом и полоской здоровья врага).
 // <T extends Entity> — функция работает со списком любых объектов: и снарядов, и врагов.
 export const removeEntity = <T extends Entity>({
   world,
@@ -38,7 +47,7 @@ export const removeEntity = <T extends Entity>({
   }
 
   world.removeRigidBody(entity.body);
-  scene.remove(entity.mesh);
+  scene.remove(entity.object);
   entities.delete(handle);
 };
 
@@ -49,10 +58,26 @@ export const removeAllEntities = <T extends Entity>({ world, scene, entities }: 
   }
 };
 
-// Физика обновила тела, но меши об этом не знают — копируем положение вручную.
-// Поворот не копируем: враги и снаряды в этой игре не вращаются.
-export const syncMeshes = <T extends Entity>(entities: Entities<T>): void => {
-  for (const { body, mesh } of entities.values()) {
-    mesh.position.copy(body.translation());
+// Удаляет объекты, упавшие с арены ниже FALL_REMOVE_HEIGHT: дальше они падали бы вечно.
+export const removeFallenEntities = <T extends Entity>({ world, scene, entities }: EntityContext<T>): void => {
+  for (const [handle, { body }] of entities) {
+    if (body.translation().y < FALL_REMOVE_HEIGHT) {
+      removeEntity({ world, scene, entities, handle });
+    }
+  }
+};
+
+// Физика обновила тела, но видимые объекты об этом не знают — копируем положение вручную.
+export const syncPositions = <T extends Entity>(entities: Entities<T>): void => {
+  for (const { body, object } of entities.values()) {
+    object.position.copy(body.translation());
+  }
+};
+
+// Поворот тела копируем только на куб, а не на весь объект: см. CubeEntity.
+// rotation() — поворот в виде кватерниона (четыре числа), Three.js понимает его напрямую.
+export const syncCubeRotations = <T extends CubeEntity>(entities: Entities<T>): void => {
+  for (const { body, cube } of entities.values()) {
+    cube.quaternion.copy(body.rotation());
   }
 };

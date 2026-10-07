@@ -1,10 +1,12 @@
 import RAPIER, { type ColliderHandle } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { PROJECTILE_GROUPS } from './collision-groups';
 import {
   ARENA_SIZE,
-  PLAYER_SIZE,
   PROJECTILE_COLOR,
   PROJECTILE_DAMAGE,
+  PROJECTILE_HEIGHT,
+  PROJECTILE_MASS,
   PROJECTILE_SIZE,
   PROJECTILE_SPEED,
 } from './config';
@@ -59,8 +61,8 @@ export const findTarget = ({ enemies, projectiles }: { enemies: Enemies; project
       undefined,
     );
 
-// Выпускает снаряд из центра игрока в сторону текущей позиции цели.
-// Упреждения нет: враги идут прямо на игрока, то есть навстречу снаряду, и он и так попадает.
+// Выпускает пулю из центра игрока в сторону цели — горизонтально, на высоте ствола PROJECTILE_HEIGHT.
+// Упреждения нет: враги идут прямо на игрока, то есть навстречу пуле.
 export const fireProjectile = ({
   world,
   scene,
@@ -74,28 +76,35 @@ export const fireProjectile = ({
     return;
   }
 
-  // Скорость задаём один раз при выстреле: гравитации и трения нет, так что дальше снаряд
-  // летит по прямой с постоянной скоростью. Высота — центр игрока, чтобы снаряд задевал врагов.
+  // Скорость задаём один раз при выстреле. setGravityScale(0) — гравитация на пулю не действует:
+  // она летит по прямой, как очень быстрая пуля, у которой падение на таком расстоянии незаметно.
+  // CCD (непрерывное определение столкновений) — пуля маленькая и быстрая: без него за один шаг
+  // симуляции она успела бы глубоко влезть во врага, и физика выталкивала бы её с лишней силой.
   const body = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(0, PLAYER_SIZE / 2, 0)
-      .setLinvel((x / distance) * PROJECTILE_SPEED, 0, (z / distance) * PROJECTILE_SPEED),
+      .setTranslation(0, PROJECTILE_HEIGHT, 0)
+      .setLinvel((x / distance) * PROJECTILE_SPEED, 0, (z / distance) * PROJECTILE_SPEED)
+      .setGravityScale(0)
+      .setCcdEnabled(true),
   );
 
-  // Сенсор — коллайдер, который ни с чем не сталкивается физически (не толкает и не отскакивает),
-  // а только сообщает о пересечениях. Так снаряд не сдвинет врага, а мы узнаем о попадании.
-  // Он же не застревает в игроке, хотя появляется прямо внутри него.
+  // Пуля — твёрдое тело с массой: врезаясь во врага, она толкает его, как настоящая.
+  // Сколько импульса передать, в какую сторону и с каким вращением — считает физический движок
+  // по массам, скорости и точке контакта. После попадания пулю удаляем (см. applyHit в main.ts).
+  // Группа столкновений пули — только враги: сквозь игрока, пол, другие пули и призраков она пролетает.
+  // ActiveEvents.COLLISION_EVENTS — сообщать о столкновениях: так мы узнаём о попадании.
   const collider = world.createCollider(
     RAPIER.ColliderDesc.cuboid(PROJECTILE_SIZE / 2, PROJECTILE_SIZE / 2, PROJECTILE_SIZE / 2)
-      .setSensor(true)
-      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+      .setMass(PROJECTILE_MASS)
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
+      .setCollisionGroups(PROJECTILE_GROUPS),
     body,
   );
 
   const mesh = new THREE.Mesh(PROJECTILE_GEOMETRY, PROJECTILE_MATERIAL);
   mesh.position.copy(body.translation());
   scene.add(mesh);
-  entities.set(collider.handle, { body, mesh, targetHandle: target.handle });
+  entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle });
 };
 
 // Удаляет снаряды, улетевшие за пределы арены, — иначе промахи копились бы бесконечно.

@@ -4,9 +4,16 @@
 import type { ColliderHandle } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { DAMAGE_NUMBER_HEIGHT, FIRE_INTERVAL, PROJECTILE_DAMAGE } from './config';
+import { turnIntoCorpse, updateCorpses, type Corpses } from './corpses';
 import { createDamageNumbers } from './damage-numbers';
 import { damageEnemy, moveEnemies, spawnEnemy, turnHpBarsToCamera, type Enemies, type Enemy } from './enemies';
-import { removeAllEntities, removeEntity, syncMeshes } from './entity';
+import {
+  removeAllEntities,
+  removeEntity,
+  removeFallenEntities,
+  syncCubeRotations,
+  syncPositions,
+} from './entity';
 import { createHud } from './hud';
 import { createPhysics } from './physics';
 import { createPlayer } from './player';
@@ -38,9 +45,10 @@ const hud = createHud();
 const showDamageNumber = createDamageNumbers();
 const playerHandle = createPlayer({ world, scene });
 
-// Живые враги и летящие снаряды. Ключ — handle коллайдера (см. entity.ts).
+// Живые враги, летящие снаряды и призраки погибших врагов. Ключ — handle коллайдера (см. entity.ts).
 const enemies: Enemies = new Map();
 const projectiles: Projectiles = new Map();
+const corpses: Corpses = new Map();
 
 // ─── СОСТОЯНИЕ ИГРЫ ──────────────────────────────────────────────────────────
 
@@ -171,15 +179,46 @@ const hitEnemy = (enemy: Enemy, damage: number): void => {
   showDamageNumber({ position, damage, camera });
 };
 
+// Попадание снаряда во врага, найденное в событиях столкновений.
+type Hit = {
+  enemyHandle: ColliderHandle;
+  projectileHandle: ColliderHandle;
+};
+
+// Применяет одно попадание. Толчок врагу уже передала физика в этом шаге, когда пуля в него врезалась, —
+// здесь только игровая логика: пуля исчезает, враг получает урон, а если здоровье кончилось,
+// становится призраком (и летит дальше с тем импульсом, что дала ему последняя пуля).
+// Пулю удаляем при любом касании: после удара она почти остановилась и иначе зависла бы в воздухе.
+// Если пуля в этом же шаге задела двоих, урон получает только первый.
+const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
+  if (!projectiles.has(projectileHandle)) {
+    return;
+  }
+
+  removeEntity({ world, scene, entities: projectiles, handle: projectileHandle });
+
+  const enemy = enemies.get(enemyHandle);
+
+  // Враг уже погиб от предыдущей пули в этом же шаге.
+  if (!enemy) {
+    return;
+  }
+
+  hitEnemy(enemy, PROJECTILE_DAMAGE);
+
+  if (enemy.hp <= 0) {
+    turnIntoCorpse({ world, enemies, corpses, handle: enemyHandle });
+  }
+};
+
 // Разбираем столкновения, которые Rapier нашёл за последний шаг.
 // События приходят парами handle-ов коллайдеров в произвольном порядке, а нас интересуют две пары:
-// «враг + снаряд» — снаряд исчезает, враг теряет здоровье и погибает, когда оно кончилось;
-// «враг + игрок» — поражение. Остальные (снаряд внутри игрока сразу после выстрела и т. п.) пропускаем.
+// «враг + снаряд» — попадание; «враг + игрок» — поражение. Остальные пары (враг с полом, враги между собой)
+// события не создают: флаг событий есть только у игрока и снарядов.
 const handleCollisions = (): void => {
-  // Удалять тела прямо во время обхода событий нельзя — Rapier ещё читает их данные.
-  // Поэтому сначала собираем, кого удалить, а удаляем после.
-  const deadEnemies = new Set<ColliderHandle>();
-  const usedProjectiles = new Set<ColliderHandle>();
+  // Менять физический мир прямо во время обхода событий небезопасно: удалять тела, толкать их,
+  // менять группы. Поэтому попадания сначала собираем, а применяем после обхода.
+  const hits: Hit[] = [];
 
   // isStarted: true — столкновение началось, false — закончилось. Нужны только начала.
   eventQueue.drainCollisionEvents((handle1: ColliderHandle, handle2: ColliderHandle, isStarted: boolean): void => {
@@ -189,9 +228,8 @@ const handleCollisions = (): void => {
 
     // Ставим врага первым, чтобы дальше не проверять оба порядка.
     const [enemyHandle, otherHandle] = enemies.has(handle1) ? [handle1, handle2] : [handle2, handle1];
-    const enemy = enemies.get(enemyHandle);
 
-    if (!enemy) {
+    if (!enemies.has(enemyHandle)) {
       return;
     }
 
@@ -201,36 +239,20 @@ const handleCollisions = (): void => {
       return;
     }
 
-    // Один снаряд ранит одного врага и исчезает. Через уже погибшего врага
-    // (он ещё не удалён до конца этого шага) следующий снаряд пролетает насквозь.
-    const isHit =
-      projectiles.has(otherHandle) && !usedProjectiles.has(otherHandle) && !deadEnemies.has(enemyHandle);
-
-    if (!isHit) {
-      return;
-    }
-
-    usedProjectiles.add(otherHandle);
-    hitEnemy(enemy, PROJECTILE_DAMAGE);
-
-    if (enemy.hp <= 0) {
-      deadEnemies.add(enemyHandle);
+    if (projectiles.has(otherHandle)) {
+      hits.push({ enemyHandle, projectileHandle: otherHandle });
     }
   });
 
-  for (const handle of deadEnemies) {
-    removeEntity({ world, scene, entities: enemies, handle });
-  }
-
-  for (const handle of usedProjectiles) {
-    removeEntity({ world, scene, entities: projectiles, handle });
+  for (const hit of hits) {
+    applyHit(hit);
   }
 };
 
 const updateGame = (delta: number): void => {
   spawnScheduledEnemies(delta);
   shoot(delta);
-  moveEnemies(enemies);
+  moveEnemies(enemies, delta);
 
   // Продвигаем симуляцию на delta секунд: двигаем тела, разрешаем столкновения
   // и складываем события о них в eventQueue.
@@ -244,16 +266,22 @@ const updateGame = (delta: number): void => {
     return;
   }
 
+  // Враг, упавший с арены, удаляется и засчитывается убитым.
+  removeFallenEntities({ world, scene, entities: enemies });
+  removeFallenEntities({ world, scene, entities: corpses });
+  updateCorpses({ world, scene, entities: corpses, delta });
   removeFarProjectiles({ world, scene, entities: projectiles });
   advanceWave();
 };
 
 // ─── СТАРТ И РЕСТАРТ ─────────────────────────────────────────────────────────
 
-// Новая игра без перезагрузки страницы: убираем всех врагов и снаряды и начинаем со стартовой волны.
+// Новая игра без перезагрузки страницы: убираем всех врагов, снаряды и призраков
+// и начинаем со стартовой волны.
 const startGame = (): void => {
   removeAllEntities({ world, scene, entities: enemies });
   removeAllEntities({ world, scene, entities: projectiles });
+  removeAllEntities({ world, scene, entities: corpses });
   state.fireTimer = 0;
   state.status = 'playing';
   hud.hideEndScreen();
@@ -302,8 +330,11 @@ renderer.setAnimationLoop((time: number): void => {
     updateGame(delta);
   }
 
-  syncMeshes(enemies);
-  syncMeshes(projectiles);
+  syncPositions(enemies);
+  syncPositions(projectiles);
+  syncPositions(corpses);
+  syncCubeRotations(enemies);
+  syncCubeRotations(corpses);
   turnHpBarsToCamera(enemies, camera);
   renderer.render(scene, camera);
 });

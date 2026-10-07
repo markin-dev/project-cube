@@ -1,12 +1,25 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { ENEMY_COLOR, ENEMY_MAX_HP, ENEMY_SIZE, ENEMY_SPEED, HP_BAR_GAP } from './config';
-import type { Entities, Entity, EntityContext } from './entity';
+import { ENEMY_GROUPS } from './collision-groups';
+import {
+  ENEMY_ACCELERATION,
+  ENEMY_ANGULAR_DAMPING,
+  ENEMY_COLOR,
+  ENEMY_FRICTION,
+  ENEMY_LINEAR_DAMPING,
+  ENEMY_MASS,
+  ENEMY_MAX_HP,
+  ENEMY_RESTITUTION,
+  ENEMY_SIZE,
+  ENEMY_SPEED,
+  HP_BAR_GAP,
+} from './config';
+import type { CubeEntity, Entities, EntityContext } from './entity';
 import { createHpBar, setHpBarValue, turnToCamera, type HpBar } from './hp-bar';
 import type { Point } from './patterns';
 
-// Враг — обычный игровой объект плюс здоровье и полоска здоровья над ним.
-export type Enemy = Entity & {
+// Враг — куб, который вращается вместе с телом (см. CubeEntity), плюс здоровье и полоска здоровья.
+export type Enemy = CubeEntity & {
   hp: number;
   hpBar: HpBar;
 };
@@ -18,64 +31,89 @@ export type Enemies = Entities<Enemy>;
 const ENEMY_GEOMETRY = new THREE.BoxGeometry(ENEMY_SIZE, ENEMY_SIZE, ENEMY_SIZE);
 const ENEMY_MATERIAL = new THREE.MeshLambertMaterial({ color: ENEMY_COLOR });
 
+// Враг стоит на полу, а не летит, если его центр ниже этой высоты. Куб, лежащий на грани, держит центр
+// на высоте половины стороны, а застывший на ребре или вершине — до ~0.87 стороны. Чуть выше — уже полёт.
+const ON_FLOOR_HEIGHT = ENEMY_SIZE * 0.9;
+
 // Создаёт врага в точке point на полу. Где именно — решают паттерны волны (src/patterns.ts).
 export const spawnEnemy = ({ world, scene, entities, point }: EntityContext<Enemy> & { point: Point }): void => {
   const { x, z } = point;
 
-  // dynamic — тело, которым управляет физика: его толкают другие тела, и оно толкает их.
-  // Благодаря этому враги не проходят друг сквозь друга, а расталкиваются.
-  // lockRotations — от толчков враг не будет кувыркаться.
-  // enabledTranslations(true, false, true) — двигаться можно только по X и Z,
-  // по Y нельзя: враги не подпрыгивают, когда упираются друг в друга.
+  // dynamic — тело, которым управляет физика: оно падает, отлетает от ударов, кувыркается
+  // и толкает других врагов. Затухание гасит полёт и вращение, как сопротивление воздуха.
+  // CCD (непрерывное определение столкновений) не даёт быстро летящему врагу проскочить сквозь пол
+  // между двумя шагами симуляции.
   const body = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(x, ENEMY_SIZE / 2, z)
-      .lockRotations()
-      .enabledTranslations(true, false, true),
+      .setLinearDamping(ENEMY_LINEAR_DAMPING)
+      .setAngularDamping(ENEMY_ANGULAR_DAMPING)
+      .setCcdEnabled(true),
   );
 
+  // Масса задаётся явно: от неё зависит, насколько врага сдвинет пуля (см. PROJECTILE_MASS).
+  // Момент инерции — то, насколько трудно раскрутить куб, — Rapier считает сам по форме и массе.
+  // Трение и упругость при столкновении двух коллайдеров Rapier по умолчанию усредняет.
+  // Правило Max берёт большее из двух значений: у пола они нулевые, поэтому о пол и о других врагов
+  // работают ровно числа из конфига.
   const collider = world.createCollider(
-    RAPIER.ColliderDesc.cuboid(ENEMY_SIZE / 2, ENEMY_SIZE / 2, ENEMY_SIZE / 2),
+    RAPIER.ColliderDesc.cuboid(ENEMY_SIZE / 2, ENEMY_SIZE / 2, ENEMY_SIZE / 2)
+      .setMass(ENEMY_MASS)
+      .setFriction(ENEMY_FRICTION)
+      .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Max)
+      .setRestitution(ENEMY_RESTITUTION)
+      .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Max)
+      .setCollisionGroups(ENEMY_GROUPS),
     body,
   );
 
-  const mesh = new THREE.Mesh(ENEMY_GEOMETRY, ENEMY_MATERIAL);
-  mesh.position.copy(body.translation());
-
-  // Полоска здоровья — дочерний объект меша: её позиция отсчитывается от центра врага,
-  // поэтому она сама двигается вместе с ним и удаляется со сцены вместе с ним.
-  // Поднимаем её над верхней гранью куба (центр врага — на половине его высоты).
+  // Видимый враг — группа, которая только двигается вместе с телом. Внутри неё:
+  // куб — вращается вместе с телом (кувыркается);
+  // полоска здоровья — не вращается и висит над центром врага, на полстороны куба плюс зазор выше.
+  const cube = new THREE.Mesh(ENEMY_GEOMETRY, ENEMY_MATERIAL);
   const hpBar = createHpBar();
   hpBar.group.position.y = ENEMY_SIZE / 2 + HP_BAR_GAP;
-  mesh.add(hpBar.group);
 
-  scene.add(mesh);
-  entities.set(collider.handle, { body, mesh, hp: ENEMY_MAX_HP, hpBar });
+  const object = new THREE.Group();
+  object.add(cube, hpBar.group);
+  object.position.copy(body.translation());
+  scene.add(object);
+
+  entities.set(collider.handle, { body, object, cube, hp: ENEMY_MAX_HP, hpBar });
 };
 
-// Отнимает здоровье и обновляет полоску. Удалять погибшего врага (hp <= 0) — дело вызывающего кода.
+// Отнимает здоровье и обновляет полоску. Что делать с погибшим (hp <= 0) — решает вызывающий код.
 export const damageEnemy = (enemy: Enemy, damage: number): void => {
   enemy.hp -= damage;
   setHpBarValue(enemy.hpBar, enemy.hp / ENEMY_MAX_HP);
 };
 
-// Каждый кадр направляем всех врагов к центру арены, где стоит игрок.
-export const moveEnemies = (enemies: Enemies): void => {
+// Каждый кадр враги, стоящие на полу, разгоняются к центру арены, где стоит игрок.
+// Скорость не задаётся жёстко, а меняется не больше чем на ENEMY_ACCELERATION × delta за кадр:
+// иначе любой толчок от удара гасился бы в следующем же кадре. Враг в воздухе не управляется.
+export const moveEnemies = (enemies: Enemies, delta: number): void => {
   for (const { body } of enemies.values()) {
-    const { x, z } = body.translation();
-
-    // Вектор к центру — это (-x, -z). Делим его на длину, чтобы получить направление длиной 1,
-    // и умножаем на скорость. Без деления дальние враги бежали бы быстрее ближних.
-    const distance = Math.hypot(x, z);
+    const position = body.translation();
+    const isOnFloor = position.y < ON_FLOOR_HEIGHT;
+    const distance = Math.hypot(position.x, position.z);
 
     // В самом центре стоит игрок, враг туда не попадёт, но делить на ноль всё равно не будем.
-    if (distance === 0) {
+    if (!isOnFloor || distance === 0) {
       continue;
     }
 
-    // Скорость задаём заново каждый кадр: после толчков от соседей враг снова идёт точно к центру.
+    // Желаемая скорость — к центру, (-x, -z), длиной ENEMY_SPEED. Разница с текущей скоростью по полу —
+    // сколько нужно добавить. Если это больше, чем разрешает ускорение, добавляем только часть.
+    const velocity = body.linvel();
+    const changeX = (-position.x / distance) * ENEMY_SPEED - velocity.x;
+    const changeZ = (-position.z / distance) * ENEMY_SPEED - velocity.z;
+    const change = Math.hypot(changeX, changeZ);
+    const maxChange = ENEMY_ACCELERATION * delta;
+    const fraction = change > maxChange ? maxChange / change : 1;
+
+    // Вертикальную скорость не трогаем — ей управляет гравитация.
     // true «будит» тело: Rapier усыпляет неподвижные тела, и спящее не сдвинется даже со скоростью.
-    body.setLinvel({ x: (-x / distance) * ENEMY_SPEED, y: 0, z: (-z / distance) * ENEMY_SPEED }, true);
+    body.setLinvel({ x: velocity.x + changeX * fraction, y: velocity.y, z: velocity.z + changeZ * fraction }, true);
   }
 };
 
