@@ -41,10 +41,29 @@ const KIND_MATERIALS = Object.fromEntries(
 // Чуть выше — уже полёт.
 const ON_FLOOR_HEIGHT_FRACTION = 0.9;
 
-// Проверка «враг стоит на полу (а не летит)?». Нужна движению (в воздухе враг не управляется)
-// и прицелу (летящий враг падает под гравитацией — это учитывает упреждение).
-export const isEnemyOnFloor = ({ body, kind }: Pick<Enemy, 'body' | 'kind'>): boolean =>
-  body.translation().y < kind.size * ON_FLOOR_HEIGHT_FRACTION;
+// Проверка «центр врага над площадью арены (не дальше края по X и Z)?». Враг, перевалившийся центром
+// за край, обречён: управления над пустотой у него нет, а пули толкают его только дальше от куба.
+export const isEnemyOverArena = ({ body }: Pick<Enemy, 'body'>): boolean => {
+  const { x, z } = body.translation();
+  const halfArena = config.ARENA_SIZE / 2;
+
+  return Math.abs(x) <= halfArena && Math.abs(z) <= halfArena;
+};
+
+// Проверка «враг стоит на полу (а не летит и не падает с арены)?». Нужна движению (в воздухе враг
+// не управляется) и прицелу (летящий враг падает под гравитацией — это учитывает упреждение).
+// Стоит на полу — значит, центр врага над площадью арены, не ниже пола и не выше ON_FLOOR_HEIGHT_FRACTION
+// его роста. Враг, перевалившийся центром за край, теряет управление и падает — а не цепляется за край
+// и не ползёт к центру уже под полом.
+export const isEnemyOnFloor = (enemy: Pick<Enemy, 'body' | 'kind'>): boolean => {
+  const { y } = enemy.body.translation();
+
+  return isEnemyOverArena(enemy) && y >= 0 && y < enemy.kind.size * ON_FLOOR_HEIGHT_FRACTION;
+};
+
+// Проверка «враг ниже пола?» — центр ниже верхней поверхности пола (y = 0). На полу так не бывает:
+// пол твёрдый, и центр стоящего врага не ниже половины его роста. Значит, враг сорвался с края арены.
+export const isEnemyBelowFloor = ({ body }: Pick<Enemy, 'body'>): boolean => body.translation().y < 0;
 
 // Создаёт врага типа kindName в точке point на полу. Где и какого типа — решает описание волны
 // (src/waves.ts, src/patterns.ts).

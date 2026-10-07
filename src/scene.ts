@@ -1,6 +1,7 @@
 // THREE — графика: рисует объекты на экране. О физике ничего не знает.
 import * as THREE from 'three';
 import { config } from './config';
+import { createDeathWalls, refreshDeathWalls } from './death-walls';
 
 // ─── РАСЧЁТ ВИДИМОЙ ОБЛАСТИ ──────────────────────────────────────────────────
 
@@ -11,23 +12,30 @@ import { config } from './config';
 const ARENA_HALF_DIAGONAL = (config.ARENA_SIZE / 2) * Math.SQRT2;
 
 // Верхний и нижний углы ромба — тоже концы диагонали, но камера смотрит на неё под углом ~35°,
-// и в изометрии она сжимается ровно в √3 раз.
+// и в изометрии она сжимается ровно в √3 раз. Сверху над дальним углом ещё торчат стенки границы
+// (death-walls.ts): вертикальный отрезок на экране укорачивается в √(3/2) раза. Их высота тоже читается
+// при загрузке — если поменять её в панели, камера подстроится после перезагрузки.
 // Запас 10% — чтобы арена не упиралась в края экрана.
 const VIEW_MARGIN = 1.1;
 const NEED_HALF_WIDTH = ARENA_HALF_DIAGONAL * VIEW_MARGIN;
-const NEED_HALF_HEIGHT = (ARENA_HALF_DIAGONAL / Math.sqrt(3)) * VIEW_MARGIN;
+
+const NEED_HALF_HEIGHT =
+  (ARENA_HALF_DIAGONAL / Math.sqrt(3) + config.DEATH_WALL_HEIGHT * Math.sqrt(2 / 3)) * VIEW_MARGIN;
 
 // Расстояние камеры от центра по каждой оси. На картинку в ортографической камере не влияет,
 // важно лишь, чтобы вся арена оказалась между ближней и дальней границами отрисовки.
 const CAMERA_DISTANCE = 30;
 
-// Материал пола общий на модуль, чтобы его цвет можно было поменять из панели настроек (refreshSceneColors).
+// Материал пола общий на модуль, чтобы его цвет можно было поменять из панели настроек (refreshSceneLook).
 const FLOOR_MATERIAL = new THREE.MeshLambertMaterial({ color: config.FLOOR_COLOR });
 
 type SceneParts = {
   scene: THREE.Scene;
   camera: THREE.OrthographicCamera;
   renderer: THREE.WebGLRenderer;
+
+  // Стенки границы смерти — нужны, чтобы обновлять их из панели настроек (refreshSceneLook).
+  deathWalls: THREE.Group;
 };
 
 // Ортографическая камера видит прямоугольник мира: left/right/top/bottom — его границы в метрах.
@@ -97,17 +105,22 @@ export const createScene = (): SceneParts => {
   floor.position.y = -0.1;
   scene.add(floor);
 
+  // Прозрачные стенки по краям пола — граница, за которой враг погибает.
+  const deathWalls = createDeathWalls();
+  scene.add(deathWalls);
+
   // При изменении размера окна заново вписываем арену и меняем размер canvas.
   window.addEventListener('resize', (): void => {
     fitCamera(camera);
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  return { scene, camera, renderer };
+  return { scene, camera, renderer, deathWalls };
 };
 
-// Перекрашивает фон и пол по текущему конфигу — вызывается, когда цвета меняют в панели настроек.
-export const refreshSceneColors = (scene: THREE.Scene): void => {
+// Обновляет фон, пол и стенки границы по текущему конфигу — вызывается из панели настроек.
+export const refreshSceneLook = ({ scene, deathWalls }: Pick<SceneParts, 'scene' | 'deathWalls'>): void => {
   scene.background = new THREE.Color(config.BACKGROUND_COLOR);
   FLOOR_MATERIAL.color.set(config.FLOOR_COLOR);
+  refreshDeathWalls(deathWalls);
 };

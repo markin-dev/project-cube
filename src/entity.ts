@@ -59,6 +59,7 @@ export const removeAllEntities = <T extends Entity>({ world, scene, entities }: 
 };
 
 // Удаляет объекты, упавшие с арены ниже config.FALL_REMOVE_HEIGHT: дальше они падали бы вечно.
+// Сейчас так удаляются только призраки: живые враги погибают сразу, как только окажутся ниже пола.
 export const removeFallenEntities = <T extends Entity>({ world, scene, entities }: EntityContext<T>): void => {
   for (const [handle, { body }] of entities) {
     if (body.translation().y < config.FALL_REMOVE_HEIGHT) {

@@ -4,7 +4,7 @@
 import type { ColliderHandle } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { config } from './config';
-import { refreshCorpseLook, turnIntoCorpse, updateCorpses, type Corpses } from './corpses';
+import { refreshCorpseLook, turnOutOfArenaIntoCorpses, turnIntoCorpse, updateCorpses, type Corpses } from './corpses';
 import { createDamageNumbers } from './damage-numbers';
 import {
   damageEnemy,
@@ -33,7 +33,7 @@ import {
   removeFarProjectiles,
   type Projectiles,
 } from './projectiles';
-import { createScene, refreshSceneColors } from './scene';
+import { createScene, refreshSceneLook } from './scene';
 import { buildWaveSchedule, type SpawnEvent } from './schedule';
 import { createSettingsPanel } from './settings-panel';
 import { WAVES } from './waves';
@@ -56,7 +56,7 @@ const START_WAVE_INDEX = getStartWaveIndex();
 // ─── СОЗДАНИЕ МИРА ───────────────────────────────────────────────────────────
 
 const { world, eventQueue } = await createPhysics();
-const { scene, camera, renderer } = createScene();
+const { scene, camera, renderer, deathWalls } = createScene();
 const hud = createHud();
 const showDamageNumber = createDamageNumbers();
 const playerHandle = createPlayer({ world, scene });
@@ -64,7 +64,7 @@ const playerHandle = createPlayer({ world, scene });
 // Применяет изменения из панели настроек, которые игра сама не подхватит: общие материалы перекрашиваем,
 // гравитацию задаём миру. Всё остальное код и так читает из config в момент использования.
 const applyLiveConfig = (): void => {
-  refreshSceneColors(scene);
+  refreshSceneLook({ scene, deathWalls });
   refreshPlayerColor();
   refreshEnemyColors();
   refreshProjectileColor();
@@ -296,8 +296,9 @@ const updateGame = (delta: number): void => {
     return;
   }
 
-  // Враг, упавший с арены, удаляется и засчитывается убитым.
-  removeFallenEntities({ world, scene, entities: enemies });
+  // Враг, пересёкший край арены, сразу погибает и летит дальше призраком.
+  // Призраки, улетевшие слишком глубоко, удаляются — дальше они падали бы вечно.
+  turnOutOfArenaIntoCorpses({ world, enemies, corpses });
   removeFallenEntities({ world, scene, entities: corpses });
   updateCorpses({ world, scene, entities: corpses, delta });
   removeFarProjectiles({ world, scene, entities: projectiles });

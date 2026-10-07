@@ -58,7 +58,9 @@ const SECTIONS: Section[] = [
     settings: [
       { key: 'ARENA_SIZE', label: 'Размер арены, м', min: 12, max: 60, step: 1, apply: 'reload' },
       { key: 'SPAWN_RADIUS', label: 'Радиус спавна, м', min: 3, max: 28, step: 0.5 },
-      { key: 'ENEMY_COUNT_MULTIPLIER', label: 'Множитель врагов', min: 1, max: 10, step: 1, apply: 'nextWave' },
+      { key: 'DEATH_WALL_HEIGHT', label: 'Высота границы, м', min: 0, max: 10, step: 0.1 },
+      { key: 'DEATH_WALL_OPACITY', label: 'Непрозрачность границы', min: 0, max: 1, step: 0.05 },
+      { key: 'ENEMY_COUNT_MULTIPLIER', label: 'Множитель врагов', min: 1, max: 1000, step: 1, apply: 'nextWave' },
       { key: 'DEFAULT_LINE_WIDTH', label: 'Ширина шеренги, м', min: 1, max: 20, step: 0.5, apply: 'nextWave' },
       { key: 'DEFAULT_CLUSTER_RADIUS', label: 'Радиус кучки, м', min: 0.5, max: 6, step: 0.1, apply: 'nextWave' },
     ],
@@ -93,7 +95,7 @@ const SECTIONS: Section[] = [
       { key: 'ENEMY_RESTITUTION', label: 'Упругость врагов', min: 0, max: 1, step: 0.05, apply: 'newEnemies' },
       { key: 'ENEMY_LINEAR_DAMPING', label: 'Затухание полёта', min: 0, max: 5, step: 0.05, apply: 'newEnemies' },
       { key: 'ENEMY_ANGULAR_DAMPING', label: 'Затухание вращения', min: 0, max: 5, step: 0.05, apply: 'newEnemies' },
-      { key: 'FALL_REMOVE_HEIGHT', label: 'Удалять упавших ниже, м', min: -50, max: -1, step: 1 },
+      { key: 'FALL_REMOVE_HEIGHT', label: 'Удалять призраков ниже, м', min: -50, max: -1, step: 1 },
     ],
   },
   {
@@ -134,6 +136,7 @@ const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
   { key: 'HP_BAR_BACKGROUND_COLOR', label: 'Подложка полоски' },
   { key: 'DAMAGE_NUMBER_COLOR', label: 'Цифры урона' },
   { key: 'CORPSE_COLOR', label: 'Призраки' },
+  { key: 'DEATH_WALL_COLOR', label: 'Граница арены' },
 ];
 
 // Названия типов врагов для папок панели. Record с ключом EnemyKindName: TypeScript проверит,
@@ -148,6 +151,10 @@ const KIND_TITLES: Record<EnemyKindName, string> = {
 
 const PANEL_TITLE = 'Настройки';
 const PANEL_WIDTH = 340;
+
+// Уже этой ширины (px) экран считаем узким: панель переезжает вниз.
+const NARROW_SCREEN_WIDTH = 700;
+
 const COPY_LABEL = 'Скопировать изменения';
 const COPIED_LABEL = 'Скопировано ✓';
 const COPIED_LABEL_DURATION = 1500;
@@ -193,6 +200,14 @@ export const createSettingsPanel = ({ onChange }: { onChange: () => void }): Set
 
   // Подписи у нас длинные — отдаём им больше половины ширины строки (переменная из стилей lil-gui).
   gui.domElement.style.setProperty('--name-width', '55%');
+
+  // На узком экране (телефон вертикально) панель почти во всю ширину и у верхнего края наезжала бы
+  // на номер волны — прижимаем её к нижнему краю. Раскрытая, она растёт вверх.
+  if (window.innerWidth < NARROW_SCREEN_WIDTH) {
+    gui.domElement.style.top = 'auto';
+    gui.domElement.style.bottom = '0';
+  }
+
   addLegend(gui);
 
   for (const { title, settings, isWithEnemyKinds } of SECTIONS) {
