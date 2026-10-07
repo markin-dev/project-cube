@@ -3,8 +3,9 @@
 // Какие волны идут и как враги в них появляются — в waves.ts, patterns.ts и schedule.ts.
 import type { ColliderHandle } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { FIRE_INTERVAL, PROJECTILE_DAMAGE } from './config';
-import { damageEnemy, moveEnemies, spawnEnemy, turnHpBarsToCamera, type Enemies } from './enemies';
+import { DAMAGE_NUMBER_HEIGHT, FIRE_INTERVAL, PROJECTILE_DAMAGE } from './config';
+import { createDamageNumbers } from './damage-numbers';
+import { damageEnemy, moveEnemies, spawnEnemy, turnHpBarsToCamera, type Enemies, type Enemy } from './enemies';
 import { removeAllEntities, removeEntity, syncMeshes } from './entity';
 import { createHud } from './hud';
 import { createPhysics } from './physics';
@@ -34,6 +35,7 @@ const START_WAVE_INDEX = getStartWaveIndex();
 const { world, eventQueue } = await createPhysics();
 const { scene, camera, renderer } = createScene();
 const hud = createHud();
+const showDamageNumber = createDamageNumbers();
 const playerHandle = createPlayer({ world, scene });
 
 // Живые враги и летящие снаряды. Ключ — handle коллайдера (см. entity.ts).
@@ -159,6 +161,16 @@ const shoot = (delta: number): void => {
   state.fireTimer = FIRE_INTERVAL;
 };
 
+// Наносит урон врагу и показывает число урона чуть выше его полоски здоровья.
+// getWorldPosition — где полоска находится в мире (её собственная позиция задана относительно врага).
+const hitEnemy = (enemy: Enemy, damage: number): void => {
+  damageEnemy(enemy, damage);
+
+  const position = enemy.hpBar.group.getWorldPosition(new THREE.Vector3());
+  position.y += DAMAGE_NUMBER_HEIGHT;
+  showDamageNumber({ position, damage, camera });
+};
+
 // Разбираем столкновения, которые Rapier нашёл за последний шаг.
 // События приходят парами handle-ов коллайдеров в произвольном порядке, а нас интересуют две пары:
 // «враг + снаряд» — снаряд исчезает, враг теряет здоровье и погибает, когда оно кончилось;
@@ -199,7 +211,7 @@ const handleCollisions = (): void => {
     }
 
     usedProjectiles.add(otherHandle);
-    damageEnemy(enemy, PROJECTILE_DAMAGE);
+    hitEnemy(enemy, PROJECTILE_DAMAGE);
 
     if (enemy.hp <= 0) {
       deadEnemies.add(enemyHandle);

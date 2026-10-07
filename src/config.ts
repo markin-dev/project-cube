@@ -56,6 +56,21 @@ export const HP_BAR_GAP = 0.55;
 // Толщина тёмной рамки вокруг полоски.
 export const HP_BAR_BORDER = 0.04;
 
+// ─── ЦИФРЫ УРОНА ─────────────────────────────────────────────────────────────
+
+// Сколько секунд число висит на экране, пока поднимается и тает.
+export const DAMAGE_NUMBER_DURATION = 0.8;
+
+// На сколько метров выше полоски здоровья появляется число.
+export const DAMAGE_NUMBER_HEIGHT = 0.3;
+
+// Эти размеры — в пикселях экрана, а не в метрах: число рисуется HTML поверх canvas.
+// Насколько число поднимается за время жизни и на сколько случайно сдвигается вбок при появлении
+// (чтобы частые попадания не ложились одно на другое).
+export const DAMAGE_NUMBER_RISE = 40;
+export const DAMAGE_NUMBER_JITTER = 12;
+export const DAMAGE_NUMBER_FONT_SIZE = 18;
+
 // ─── ЦВЕТА ───────────────────────────────────────────────────────────────────
 
 export const BACKGROUND_COLOR = '#16161d';
@@ -65,3 +80,4 @@ export const ENEMY_COLOR = '#ef4444';
 export const PROJECTILE_COLOR = '#facc15';
 export const HP_BAR_FILL_COLOR = '#22c55e';
 export const HP_BAR_BACKGROUND_COLOR = '#111114';
+export const DAMAGE_NUMBER_COLOR = '#ffffff';

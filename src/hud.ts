@@ -37,11 +37,13 @@ export const createHud = (): Hud => {
 
   // Экран конца игры (поражение или победа): полупрозрачная заливка на всё окно и текст по центру.
   // Пока игра идёт, он скрыт (display: none).
+  // z-index: 1 — поверх цифр урона, которые ещё досматривают свою анимацию после конца игры.
   const endScreen = document.createElement('div');
 
   endScreen.style.cssText = `
     position: fixed;
     inset: 0;
+    z-index: 1;
     display: none;
     flex-direction: column;
     align-items: center;
