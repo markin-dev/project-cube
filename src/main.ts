@@ -34,7 +34,7 @@ import {
   type Projectiles,
 } from './projectiles';
 import { createScene, refreshSceneLook } from './scene';
-import { buildWaveSchedule, type SpawnEvent } from './schedule';
+import { buildWaveSchedule, type GroupSchedule } from './schedule';
 import { createSettingsPanel } from './settings-panel';
 import { findFreeSpawnPosition } from './spawn-placement';
 import { WAVES } from './waves';
@@ -86,17 +86,22 @@ const corpses: Corpses = new Map();
 // playing — идёт игра; lost — враг добрался до игрока; won — все волны пройдены.
 type GameStatus = 'playing' | 'lost' | 'won';
 
+// Группа текущей волны во время игры: её расписание (см. schedule.ts), момент, когда она началась
+// (секунд от начала волны; undefined — ещё не началась), и сколько её врагов уже появилось.
+type ActiveGroup = GroupSchedule & {
+  startTime?: number;
+  spawnedCount: number;
+};
+
 type GameState = {
   // Индекс текущей волны в WAVES, с 0. Игроку показываем номер на 1 больше.
   waveIndex: number;
 
-  // Сколько секунд прошло с начала текущей волны — по нему сверяемся с расписанием.
+  // Сколько секунд прошло с начала текущей волны — по нему сверяемся с задержками групп.
   waveTime: number;
 
-  // Расписание появления врагов текущей волны, отсортированное по времени (см. schedule.ts),
-  // и индекс первого события, которое ещё не наступило.
-  schedule: SpawnEvent[];
-  nextSpawnIndex: number;
+  // Группы текущей волны по порядку.
+  groups: ActiveGroup[];
 
   // Обратный отсчёт в секундах до следующего выстрела. Дошёл до нуля или ниже — пора стрелять.
   fireTimer: number;
@@ -108,8 +113,7 @@ type GameState = {
 const state: GameState = {
   waveIndex: START_WAVE_INDEX,
   waveTime: 0,
-  schedule: [],
-  nextSpawnIndex: 0,
+  groups: [],
   fireTimer: 0,
   status: 'playing',
 };
@@ -121,30 +125,69 @@ const startWave = (waveIndex: number): void => {
 
   state.waveIndex = waveIndex;
   state.waveTime = 0;
-  state.schedule = buildWaveSchedule(wave);
-  state.nextSpawnIndex = 0;
+  state.groups = buildWaveSchedule(wave).map((group) => ({ ...group, spawnedCount: 0 }));
   hud.setWave({ number: waveIndex + 1, total: WAVES.length, name: wave.name });
+  hud.setGroup({ number: 0, total: state.groups.length });
 };
 
-// Выпускаем врагов, чьё время по расписанию уже наступило. Расписание отсортировано по времени,
-// поэтому такие события идут подряд с nextSpawnIndex. За один кадр их может быть несколько —
-// например, когда группа появляется вся разом.
+// Проверка «группа уже началась и все её враги появились?».
+const isGroupFullySpawned = (group: ActiveGroup): boolean =>
+  group.startTime !== undefined && group.spawnedCount >= group.events.length;
+
+// Начинает группы, которым пора. Группы идут строго по порядку списка, и очередная начинается,
+// когда наступит раньше одно из двух:
+//   истекла её задержка delay от начала волны;
+//   все предыдущие группы уже полностью появились и все враги на арене убиты — ждать задержку незачем.
+// У первой группы предыдущих нет, поэтому она начинается только по задержке: delay первой группы —
+// пауза перед волной. Группа, которая ещё появляется по одному, не считается убитой, пока не появились
+// все её враги, — иначе смерть первого же врага запускала бы следующую группу.
+// За один кадр может начаться несколько групп подряд — например, если у нескольких уже истекли задержки.
+const startDueGroups = (): void => {
+  for (const [index, group] of state.groups.entries()) {
+    if (group.startTime !== undefined) {
+      continue;
+    }
+
+    const isDelayOver = state.waveTime >= group.delay;
+    const isPreviousSpawned = index > 0 && state.groups.slice(0, index).every(isGroupFullySpawned);
+    const isPreviousCleared = isPreviousSpawned && enemies.size === 0;
+
+    if (!isDelayOver && !isPreviousCleared) {
+      return;
+    }
+
+    group.startTime = state.waveTime;
+    hud.setGroup({ number: index + 1, total: state.groups.length });
+  }
+};
+
+// Выпускаем врагов начавшихся групп, чьё время уже наступило (время события — от начала его группы).
+// События в группе идут по порядку, поэтому наступившие — подряд начиная со spawnedCount.
+// За один кадр их может быть несколько — например, когда группа появляется вся разом.
 const spawnScheduledEnemies = (delta: number): void => {
   state.waveTime += delta;
+  startDueGroups();
 
-  const dueEvents = state.schedule.slice(state.nextSpawnIndex).filter(({ time }) => time <= state.waveTime);
+  for (const group of state.groups) {
+    if (group.startTime === undefined) {
+      continue;
+    }
 
-  // Точку из расписания сдвигаем к свободному месту, если там уже кто-то стоит, — рядом на полу или,
-  // если на полу тесно, ярусом выше (см. spawn-placement.ts). Враги, появившиеся раньше в этом же кадре,
-  // уже в списке enemies — их тоже учитываем.
-  for (const event of dueEvents) {
-    const size = config.ENEMY_KINDS[event.kindName].size;
-    const position = findFreeSpawnPosition({ point: event, size, enemies });
+    const elapsed = state.waveTime - group.startTime;
+    const dueEvents = group.events.slice(group.spawnedCount).filter(({ time }) => time <= elapsed);
 
-    spawnEnemy({ world, scene, entities: enemies, position, kindName: event.kindName });
+    // Точку из расписания сдвигаем к свободному месту, если там уже кто-то стоит, — рядом на полу или,
+    // если на полу тесно, ярусом выше (см. spawn-placement.ts). Враги, появившиеся раньше в этом же кадре,
+    // уже в списке enemies — их тоже учитываем.
+    for (const event of dueEvents) {
+      const size = config.ENEMY_KINDS[event.kindName].size;
+      const position = findFreeSpawnPosition({ point: event, size, enemies });
+
+      spawnEnemy({ world, scene, entities: enemies, position, kindName: event.kindName });
+    }
+
+    group.spawnedCount += dueEvents.length;
   }
-
-  state.nextSpawnIndex += dueEvents.length;
 };
 
 const winGame = (): void => {
@@ -165,10 +208,10 @@ const loseGame = (): void => {
   });
 };
 
-// Волна закончена, когда по расписанию появились все её враги и все убиты.
+// Волна закончена, когда все её группы начались, все их враги появились и все убиты.
 // Следующая начинается сразу, а после последней — победа.
 const advanceWave = (): void => {
-  const isWaveCleared = state.nextSpawnIndex >= state.schedule.length && enemies.size === 0;
+  const isWaveCleared = state.groups.every(isGroupFullySpawned) && enemies.size === 0;
 
   if (!isWaveCleared) {
     return;
