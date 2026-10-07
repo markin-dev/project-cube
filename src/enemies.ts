@@ -4,7 +4,6 @@ import { ENEMY_GROUPS } from './collision-groups';
 import { config, type EnemyKind, type EnemyKindName } from './config';
 import type { CubeEntity, Entities, EntityContext } from './entity';
 import { createHpBar, setHpBarValue, turnToCamera, type HpBar } from './hp-bar';
-import type { Point } from './patterns';
 
 // Враг — куб, который вращается вместе с телом (см. CubeEntity), плюс его тип (размер, масса,
 // здоровье, цвет — см. ENEMY_KINDS в config.ts), текущее здоровье и полоска здоровья.
@@ -69,16 +68,17 @@ export const isEnemyAboveCeiling = ({ body }: Pick<Enemy, 'body'>): boolean =>
 // пол твёрдый, и центр стоящего врага не ниже половины его роста. Значит, враг сорвался с края арены.
 export const isEnemyBelowFloor = ({ body }: Pick<Enemy, 'body'>): boolean => body.translation().y < 0;
 
-// Создаёт врага типа kindName в точке point на полу. Где и какого типа — решает описание волны
-// (src/waves.ts, src/patterns.ts).
+// Создаёт врага типа kindName с центром в position. Где и какого типа — решает описание волны
+// (src/waves.ts, src/patterns.ts), а высоту — поиск свободного места (src/spawn-placement.ts):
+// обычно враг стоит на полу (центр на половине роста), но в тесноте может появиться ярусом выше и упасть.
 export const spawnEnemy = ({
   world,
   scene,
   entities,
-  point,
+  position,
   kindName,
-}: EntityContext<Enemy> & { point: Point; kindName: EnemyKindName }): void => {
-  const { x, z } = point;
+}: EntityContext<Enemy> & { position: THREE.Vector3Like; kindName: EnemyKindName }): void => {
+  const { x, y, z } = position;
   const kind = { ...config.ENEMY_KINDS[kindName] };
   const { size, mass, hp } = kind;
 
@@ -88,7 +88,7 @@ export const spawnEnemy = ({
   // между двумя шагами симуляции.
   const body = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(x, size / 2, z)
+      .setTranslation(x, y, z)
       .setLinearDamping(config.ENEMY_LINEAR_DAMPING)
       .setAngularDamping(config.ENEMY_ANGULAR_DAMPING)
       .setCcdEnabled(true),

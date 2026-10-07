@@ -36,6 +36,7 @@ import {
 import { createScene, refreshSceneLook } from './scene';
 import { buildWaveSchedule, type SpawnEvent } from './schedule';
 import { createSettingsPanel } from './settings-panel';
+import { findFreeSpawnPosition } from './spawn-placement';
 import { WAVES } from './waves';
 
 // Самый длинный шаг симуляции. После лага или возвращения на вкладку кадр может длиться секунды,
@@ -133,8 +134,14 @@ const spawnScheduledEnemies = (delta: number): void => {
 
   const dueEvents = state.schedule.slice(state.nextSpawnIndex).filter(({ time }) => time <= state.waveTime);
 
+  // Точку из расписания сдвигаем к свободному месту, если там уже кто-то стоит, — рядом на полу или,
+  // если на полу тесно, ярусом выше (см. spawn-placement.ts). Враги, появившиеся раньше в этом же кадре,
+  // уже в списке enemies — их тоже учитываем.
   for (const event of dueEvents) {
-    spawnEnemy({ world, scene, entities: enemies, point: event, kindName: event.kindName });
+    const size = config.ENEMY_KINDS[event.kindName].size;
+    const position = findFreeSpawnPosition({ point: event, size, enemies });
+
+    spawnEnemy({ world, scene, entities: enemies, position, kindName: event.kindName });
   }
 
   state.nextSpawnIndex += dueEvents.length;

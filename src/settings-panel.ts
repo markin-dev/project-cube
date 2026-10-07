@@ -64,13 +64,14 @@ const SECTIONS: Section[] = [
       { key: 'ENEMY_COUNT_MULTIPLIER', label: 'Множитель врагов', min: 1, max: 1000, step: 1, apply: 'nextWave' },
       { key: 'DEFAULT_LINE_WIDTH', label: 'Ширина шеренги, м', min: 1, max: 20, step: 0.5, apply: 'nextWave' },
       { key: 'DEFAULT_CLUSTER_RADIUS', label: 'Радиус кучки, м', min: 0.5, max: 6, step: 0.1, apply: 'nextWave' },
+      { key: 'SPAWN_GAP', label: 'Зазор при появлении, м', min: 0, max: 2, step: 0.05 },
     ],
   },
   {
     title: 'Игрок и стрельба',
     settings: [
       { key: 'PLAYER_SIZE', label: 'Размер игрока, м', min: 0.3, max: 3, step: 0.1, apply: 'reload' },
-      { key: 'FIRE_INTERVAL', label: 'Пауза между выстрелами, с', min: 0.02, max: 1, step: 0.01 },
+      { key: 'FIRE_INTERVAL', label: 'Пауза между выстрелами, с', min: 0.0001, max: 1, step: 0.01 },
       { key: 'PROJECTILE_DAMAGE', label: 'Урон пули', min: 1, max: 200, step: 1 },
       { key: 'PROJECTILE_SPEED', label: 'Скорость пули, м/с', min: 2, max: 60, step: 0.5 },
       { key: 'PROJECTILE_MASS', label: 'Масса пули, кг', min: 0.01, max: 2, step: 0.01 },
