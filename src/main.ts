@@ -37,10 +37,15 @@ import { createScene, refreshSceneLook } from './scene';
 import { buildWaveSchedule, type GroupSchedule } from './schedule';
 import { createSettingsPanel } from './settings-panel';
 import { findFreeSpawnPosition } from './spawn-placement';
+import { createSpeedSwitch } from './speed-switch';
 import { WAVES } from './waves';
 
-// Самый длинный шаг симуляции. После лага или возвращения на вкладку кадр может длиться секунды,
-// и слишком большой шаг «протащил» бы снаряд сквозь врага, не заметив попадания.
+// Сколько реального времени кадра учитываем максимум, с. После лага или возвращения на вкладку кадр
+// может длиться секунды — без ограничения игра «перемотала» бы их разом.
+const MAX_FRAME_TIME = 1 / 30;
+
+// Самый длинный шаг симуляции, с. Слишком большой шаг «протащил» бы пулю сквозь врага, не заметив
+// попадания. При ускорении игровое время кадра делится на несколько шагов не длиннее этого.
 const MAX_TIMESTEP = 1 / 30;
 
 // С какой волны начинать (индекс в WAVES, с 0). Для отладки волн её можно задать в адресе: ?wave=3
@@ -107,6 +112,10 @@ type GameState = {
   fireTimer: number;
 
   status: GameStatus;
+
+  // Скорость игры: во сколько раз игровое время идёт быстрее реального. 0 — пауза.
+  // Меняется переключателем в левом нижнем углу и при рестарте игры не сбрасывается.
+  timeScale: number;
 };
 
 // Объект один на всю игру, меняем его поля. Настоящие стартовые значения выставляет startGame ниже.
@@ -116,7 +125,20 @@ const state: GameState = {
   groups: [],
   fireTimer: 0,
   status: 'playing',
+  timeScale: 1,
 };
+
+// Переключатель скорости в левом нижнем углу (speed-switch.ts).
+const speedSwitch = createSpeedSwitch({
+  onChange: (speed: number): void => {
+    state.timeScale = speed;
+  },
+});
+
+// Проверка «событие произошло на панели настроек или переключателе скорости?» — такие клики
+// и нажатия не должны перезапускать игру.
+const isUiTarget = (target: EventTarget | null): boolean =>
+  settingsPanel.isPanelTarget(target) || speedSwitch.isSwitchTarget(target);
 
 // ─── ВОЛНЫ ───────────────────────────────────────────────────────────────────
 
@@ -381,18 +403,19 @@ startGame();
 
 // Pointer-события объединяют палец, мышь и стилус. Слушаем окно целиком,
 // потому что после конца игры canvas закрыт экраном с результатом.
-// Клики по панели настроек игру не перезапускают — иначе после поражения нельзя было бы ничего подкрутить.
+// Клики по панели настроек и переключателю скорости игру не перезапускают — иначе после поражения
+// нельзя было бы ничего подкрутить.
 window.addEventListener('pointerdown', (event: PointerEvent): void => {
-  if (!settingsPanel.isPanelTarget(event.target)) {
+  if (!isUiTarget(event.target)) {
     restartGame();
   }
 });
 
 // event.code — физическая клавиша ('Space'), не зависит от раскладки.
 // event.repeat === true, когда клавишу держат и браузер шлёт повторные нажатия, — их пропускаем.
-// Пробел в полях панели настроек тоже не считается.
+// Пробел в полях панели настроек и на переключателе скорости тоже не считается.
 window.addEventListener('keydown', (event: KeyboardEvent): void => {
-  if (event.code === 'Space' && !event.repeat && !settingsPanel.isPanelTarget(event.target)) {
+  if (event.code === 'Space' && !event.repeat && !isUiTarget(event.target)) {
     restartGame();
   }
 });
@@ -408,14 +431,22 @@ const timer = new THREE.Timer();
 renderer.setAnimationLoop((time: number): void => {
   timer.update(time);
 
-  // Все отсчёты и физика идут по реальному времени кадра, поэтому скорость игры
-  // не зависит от частоты монитора.
-  const delta = Math.min(timer.getDelta(), MAX_TIMESTEP);
+  // Все отсчёты и физика идут по времени кадра, поэтому скорость игры не зависит от частоты монитора.
+  // Игровое время кадра — реальное, умноженное на выбранную скорость (0 — пауза).
+  const gameTime = Math.min(timer.getDelta(), MAX_FRAME_TIME) * state.timeScale;
 
-  // После конца игры всё замирает, но сцену продолжаем рисовать.
-  if (state.status === 'playing') {
-    updateGame(delta);
-  }
+  // На ускорении игровое время кадра длиннее допустимого шага физики — делим его на несколько равных
+  // шагов не длиннее MAX_TIMESTEP и на каждом целиком обновляем игру. Так попадания и физика работают
+  // так же, как на обычной скорости, только шагов за кадр больше (и нагрузка выше).
+  // На паузе шагов ноль: игра стоит, но сцену продолжаем рисовать.
+  const stepsCount = Math.ceil(gameTime / MAX_TIMESTEP);
+
+  Array.from({ length: stepsCount }).forEach((): void => {
+    // После конца игры всё замирает — в том числе посреди кадра, если враг добрался до игрока на одном из шагов.
+    if (state.status === 'playing') {
+      updateGame(gameTime / stepsCount);
+    }
+  });
 
   syncPositions(enemies);
   syncPositions(projectiles);

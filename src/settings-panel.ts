@@ -154,8 +154,9 @@ const KIND_TITLES: Record<EnemyKindName, string> = {
 const PANEL_TITLE = 'Настройки';
 const PANEL_WIDTH = 340;
 
-// Уже этой ширины (px) экран считаем узким: панель переезжает вниз.
-const NARROW_SCREEN_WIDTH = 700;
+// Уже этой ширины (px) экран считаем узким: панель переезжает вниз. Экспортируем — переключатель скорости
+// (speed-switch.ts) на узком экране поднимается над панелью.
+export const NARROW_SCREEN_WIDTH = 700;
 
 const COPY_LABEL = 'Скопировать изменения';
 const COPIED_LABEL = 'Скопировано ✓';
