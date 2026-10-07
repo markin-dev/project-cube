@@ -2,7 +2,7 @@ import RAPIER, { type ColliderHandle } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { PROJECTILE_GROUPS } from './collision-groups';
 import { config } from './config';
-import type { Enemies, Enemy } from './enemies';
+import { isEnemyOnFloor, type Enemies, type Enemy } from './enemies';
 import { removeEntity, type Entities, type Entity, type EntityContext } from './entity';
 
 // Снаряд помнит, в какого врага его выпустили, — чтобы не стрелять во врага,
@@ -61,24 +61,90 @@ export const findTarget = ({
       undefined,
     );
 
-// Выпускает пулю из центра игрока в сторону цели — горизонтально, на высоте PROJECTILE_AIM_HEIGHT
-// от роста цели (у маленьких врагов ниже, у больших выше). Упреждения нет: враги идут прямо на игрока,
-// то есть навстречу пуле.
+// ─── ПРИЦЕЛ ──────────────────────────────────────────────────────────────────
+
+const UP = new THREE.Vector3(0, 1, 0);
+
+// Где окажется враг к моменту, когда до него долетит пуля, — для упреждения.
+// Учитываем только смещение ПОПЕРЁК линии выстрела: вбок и вверх-вниз, включая падение под гравитацией,
+// если враг в воздухе (путь падения за время t — g·t²/2). Движение вдоль линии выстрела упреждать
+// не нужно: враг, бегущий к кубу или отлетающий от него, всё равно остаётся на пути пули. А скорость
+// вдоль линии как раз сильнее всего дёргается от попаданий: сразу после удара враг летит назад, но тут же
+// снова идёт к кубу, и упреждение по ней только уводило бы пули ему за спину.
+// Ниже пола прогноз не опускаем: центр врага не может быть ниже половины его размера.
+const predictPosition = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vector3 => {
+  const position = new THREE.Vector3().copy(enemy.body.translation());
+  const lineOfFire = position.clone().sub(muzzle);
+
+  // Время полёта пули до врага. По пути враг сместится немного, и на время полёта это почти не влияет.
+  const flightTime = (lineOfFire.length() / config.PROJECTILE_SPEED) * config.PROJECTILE_LEAD;
+
+  lineOfFire.normalize();
+
+  const drift = new THREE.Vector3().copy(enemy.body.linvel()).multiplyScalar(flightTime);
+
+  if (!isEnemyOnFloor(enemy)) {
+    drift.y -= (config.GRAVITY * flightTime * flightTime) / 2;
+  }
+
+  // Убираем из смещения составляющую вдоль линии выстрела (её проекцию на эту линию).
+  drift.addScaledVector(lineOfFire, -drift.dot(lineOfFire));
+  position.add(drift);
+  position.y = Math.max(position.y, enemy.kind.size / 2);
+
+  return position;
+};
+
+// Точка прицела: прогноз центра врага плюс смещение поперёк выстрела — постоянно вверх
+// и случайно по кругу вокруг этой точки (см. PROJECTILE_AIM_OFFSET_UP и PROJECTILE_AIM_SPREAD в config.ts).
+const getAimPoint = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vector3 => {
+  const center = predictPosition(enemy, muzzle);
+  const direction = center.clone().sub(muzzle).normalize();
+
+  // Два направления поперёк выстрела: «вбок» — перпендикуляр к выстрелу и к вертикали,
+  // и «вверх» — перпендикуляр к выстрелу и к «вбок» (для горизонтального выстрела — обычный верх).
+  // Если враг ровно над игроком, «вбок» не определено — берём любое горизонтальное направление.
+  const side = new THREE.Vector3().crossVectors(direction, UP);
+
+  if (side.lengthSq() === 0) {
+    side.set(1, 0, 0);
+  }
+
+  side.normalize();
+
+  const up = new THREE.Vector3().crossVectors(side, direction).normalize();
+  const halfSize = enemy.kind.size / 2;
+
+  // Случайная точка в круге: случайный угол и расстояние. Корень из случайного числа нужен,
+  // чтобы точки ложились по кругу равномерно, а не скучивались у центра.
+  const spreadAngle = Math.random() * Math.PI * 2;
+  const spreadDistance = Math.sqrt(Math.random()) * config.PROJECTILE_AIM_SPREAD * halfSize;
+
+  return center
+    .addScaledVector(up, config.PROJECTILE_AIM_OFFSET_UP * halfSize)
+    .addScaledVector(side, Math.cos(spreadAngle) * spreadDistance)
+    .addScaledVector(up, Math.sin(spreadAngle) * spreadDistance);
+};
+
+// ─── ВЫСТРЕЛ ─────────────────────────────────────────────────────────────────
+
+// Выпускает пулю из центра куба-игрока в точку прицела (getAimPoint) — по прямой, в любую сторону,
+// хоть вверх, если враг подлетел.
 export const fireProjectile = ({
   world,
   scene,
   entities,
   target,
 }: EntityContext<Projectile> & { target: Target }): void => {
-  const { x, z } = target.enemy.body.translation();
-  const distance = Math.hypot(x, z);
-  const height = target.enemy.kind.size * config.PROJECTILE_AIM_HEIGHT;
+  const muzzle = new THREE.Vector3(0, config.PLAYER_SIZE / 2, 0);
+  const direction = getAimPoint(target.enemy, muzzle).sub(muzzle);
   const size = config.PROJECTILE_SIZE;
-  const speed = config.PROJECTILE_SPEED;
 
-  if (distance === 0) {
+  if (direction.lengthSq() === 0) {
     return;
   }
+
+  const velocity = direction.normalize().multiplyScalar(config.PROJECTILE_SPEED);
 
   // Скорость задаём один раз при выстреле. setGravityScale(0) — гравитация на пулю не действует:
   // она летит по прямой, как очень быстрая пуля, у которой падение на таком расстоянии незаметно.
@@ -86,8 +152,8 @@ export const fireProjectile = ({
   // симуляции она успела бы глубоко влезть во врага, и физика выталкивала бы её с лишней силой.
   const body = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(0, height, 0)
-      .setLinvel((x / distance) * speed, 0, (z / distance) * speed)
+      .setTranslation(muzzle.x, muzzle.y, muzzle.z)
+      .setLinvel(velocity.x, velocity.y, velocity.z)
       .setGravityScale(0)
       .setCcdEnabled(true),
   );
@@ -112,14 +178,13 @@ export const fireProjectile = ({
   entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle });
 };
 
-// Удаляет снаряды, улетевшие за пределы арены, — иначе промахи копились бы бесконечно.
-// Дальше этого расстояния от центра по X или Z пуля точно промахнулась (вылетела за арену).
+// Удаляет промахнувшиеся пули — иначе они копились бы бесконечно, а куб считал бы их «летящими в цель»
+// и не стрелял бы в этого врага. Промах — пуля отлетела от центра арены дальше ARENA_SIZE: это за краем
+// арены в любую сторону, в том числе вверх, если стреляли в подброшенного врага.
 export const removeFarProjectiles = ({ world, scene, entities }: EntityContext<Projectile>): void => {
-  const maxDistance = config.ARENA_SIZE / 2 + 1;
-
   for (const [handle, { body }] of entities) {
-    const { x, z } = body.translation();
-    const isFar = Math.abs(x) > maxDistance || Math.abs(z) > maxDistance;
+    const { x, y, z } = body.translation();
+    const isFar = Math.hypot(x, y, z) > config.ARENA_SIZE;
 
     if (isFar) {
       removeEntity({ world, scene, entities, handle });

@@ -41,6 +41,11 @@ const KIND_MATERIALS = Object.fromEntries(
 // Чуть выше — уже полёт.
 const ON_FLOOR_HEIGHT_FRACTION = 0.9;
 
+// Проверка «враг стоит на полу (а не летит)?». Нужна движению (в воздухе враг не управляется)
+// и прицелу (летящий враг падает под гравитацией — это учитывает упреждение).
+export const isEnemyOnFloor = ({ body, kind }: Pick<Enemy, 'body' | 'kind'>): boolean =>
+  body.translation().y < kind.size * ON_FLOOR_HEIGHT_FRACTION;
+
 // Создаёт врага типа kindName в точке point на полу. Где и какого типа — решает описание волны
 // (src/waves.ts, src/patterns.ts).
 export const spawnEnemy = ({
@@ -109,9 +114,10 @@ export const damageEnemy = (enemy: Enemy, damage: number): void => {
 // Скорость не задаётся жёстко, а меняется не больше чем на config.ENEMY_ACCELERATION × delta за кадр:
 // иначе любой толчок от удара гасился бы в следующем же кадре. Враг в воздухе не управляется.
 export const moveEnemies = (enemies: Enemies, delta: number): void => {
-  for (const { body, kind } of enemies.values()) {
+  for (const enemy of enemies.values()) {
+    const { body } = enemy;
     const position = body.translation();
-    const isOnFloor = position.y < kind.size * ON_FLOOR_HEIGHT_FRACTION;
+    const isOnFloor = isEnemyOnFloor(enemy);
     const distance = Math.hypot(position.x, position.z);
 
     // В самом центре стоит игрок, враг туда не попадёт, но делить на ноль всё равно не будем.

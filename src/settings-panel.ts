@@ -72,7 +72,9 @@ const SECTIONS: Section[] = [
       { key: 'PROJECTILE_SPEED', label: 'Скорость пули, м/с', min: 2, max: 60, step: 0.5 },
       { key: 'PROJECTILE_MASS', label: 'Масса пули, кг', min: 0.01, max: 2, step: 0.01 },
       { key: 'PROJECTILE_SIZE', label: 'Размер пули, м', min: 0.05, max: 1, step: 0.05 },
-      { key: 'PROJECTILE_AIM_HEIGHT', label: 'Высота прицела (доля роста)', min: 0, max: 1, step: 0.01 },
+      { key: 'PROJECTILE_AIM_OFFSET_UP', label: 'Прицел выше центра (доля)', min: 0, max: 1, step: 0.05 },
+      { key: 'PROJECTILE_AIM_SPREAD', label: 'Разброс прицела (доля)', min: 0, max: 1, step: 0.05 },
+      { key: 'PROJECTILE_LEAD', label: 'Упреждение (0–1)', min: 0, max: 1, step: 0.05 },
     ],
   },
   {
