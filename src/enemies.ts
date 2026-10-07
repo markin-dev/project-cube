@@ -1,19 +1,17 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { ENEMY_COLOR, ENEMY_SIZE, ENEMY_SPEED, SPAWN_RADIUS } from './config';
+import { ENEMY_COLOR, ENEMY_SIZE, ENEMY_SPEED } from './config';
 import type { Entities, EntityContext } from './entity';
+import type { Point } from './patterns';
 
 // Геометрия и материал общие для всех врагов: незачем создавать новые для каждого,
 // Three.js умеет рисовать много мешей с одной геометрией и одним материалом.
 const ENEMY_GEOMETRY = new THREE.BoxGeometry(ENEMY_SIZE, ENEMY_SIZE, ENEMY_SIZE);
 const ENEMY_MATERIAL = new THREE.MeshLambertMaterial({ color: ENEMY_COLOR });
 
-// Создаёт врага в случайной точке окружности SPAWN_RADIUS вокруг центра.
-export const spawnEnemy = ({ world, scene, entities }: EntityContext): void => {
-  // Случайный угол от 0 до 2π (полный круг) и точка на окружности под этим углом.
-  const angle = Math.random() * Math.PI * 2;
-  const x = Math.cos(angle) * SPAWN_RADIUS;
-  const z = Math.sin(angle) * SPAWN_RADIUS;
+// Создаёт врага в точке point на полу. Где именно — решают паттерны волны (src/patterns.ts).
+export const spawnEnemy = ({ world, scene, entities, point }: EntityContext & { point: Point }): void => {
+  const { x, z } = point;
 
   // dynamic — тело, которым управляет физика: его толкают другие тела, и оно толкает их.
   // Благодаря этому враги не проходят друг сквозь друга, а расталкиваются.

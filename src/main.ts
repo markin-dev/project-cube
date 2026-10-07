@@ -1,8 +1,9 @@
 // Точка входа: создаёт сцену, физику и объекты, хранит состояние игры и крутит игровой цикл.
 // Как устроен каждый объект — в своём модуле: player.ts, enemies.ts, projectiles.ts.
+// Какие волны идут и как враги в них появляются — в waves.ts, patterns.ts и schedule.ts.
 import type { ColliderHandle } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { FIRE_INTERVAL, getWaveSize, SPAWN_INTERVAL } from './config';
+import { FIRE_INTERVAL } from './config';
 import { moveEnemies, spawnEnemy } from './enemies';
 import { removeAllEntities, removeEntity, syncMeshes, type Entities } from './entity';
 import { createHud } from './hud';
@@ -10,10 +11,23 @@ import { createPhysics } from './physics';
 import { createPlayer } from './player';
 import { findNearestEnemy, fireProjectile, removeFarProjectiles } from './projectiles';
 import { createScene } from './scene';
+import { buildWaveSchedule, type SpawnEvent } from './schedule';
+import { WAVES } from './waves';
 
 // Самый длинный шаг симуляции. После лага или возвращения на вкладку кадр может длиться секунды,
 // и слишком большой шаг «протащил» бы снаряд сквозь врага, не заметив попадания.
 const MAX_TIMESTEP = 1 / 30;
+
+// С какой волны начинать (индекс в WAVES, с 0). Для отладки волн её можно задать в адресе: ?wave=3
+// начнёт игру с третьей волны. Нет параметра или он неправильный — начинаем с первой.
+const getStartWaveIndex = (): number => {
+  const wave = Number(new URLSearchParams(window.location.search).get('wave'));
+  const isValidWave = Number.isInteger(wave) && wave >= 1 && wave <= WAVES.length;
+
+  return isValidWave ? wave - 1 : 0;
+};
+
+const START_WAVE_INDEX = getStartWaveIndex();
 
 // ─── СОЗДАНИЕ МИРА ───────────────────────────────────────────────────────────
 
@@ -28,52 +42,103 @@ const projectiles: Entities = new Map();
 
 // ─── СОСТОЯНИЕ ИГРЫ ──────────────────────────────────────────────────────────
 
+// playing — идёт игра; lost — враг добрался до игрока; won — все волны пройдены.
+type GameStatus = 'playing' | 'lost' | 'won';
+
 type GameState = {
-  // Номер текущей волны, с 1.
-  wave: number;
+  // Индекс текущей волны в WAVES, с 0. Игроку показываем номер на 1 больше.
+  waveIndex: number;
 
-  // Сколько врагов текущей волны уже появилось.
-  spawnedInWave: number;
+  // Сколько секунд прошло с начала текущей волны — по нему сверяемся с расписанием.
+  waveTime: number;
 
-  // Обратные отсчёты в секундах до следующего врага и следующего выстрела.
-  // Когда отсчёт дошёл до нуля или ниже — пора действовать.
-  spawnTimer: number;
+  // Расписание появления врагов текущей волны, отсортированное по времени (см. schedule.ts),
+  // и индекс первого события, которое ещё не наступило.
+  schedule: SpawnEvent[];
+  nextSpawnIndex: number;
+
+  // Обратный отсчёт в секундах до следующего выстрела. Дошёл до нуля или ниже — пора стрелять.
   fireTimer: number;
 
-  // Враг добрался до игрока: всё замерло, ждём нажатия для новой игры.
-  isGameOver: boolean;
+  status: GameStatus;
 };
 
-// Отсчёты начинаются с нуля, поэтому первый враг и первый выстрел происходят сразу.
-const createInitialState = (): GameState => ({
-  wave: 1,
-  spawnedInWave: 0,
-  spawnTimer: 0,
+// Объект один на всю игру, меняем его поля. Настоящие стартовые значения выставляет startGame ниже.
+const state: GameState = {
+  waveIndex: START_WAVE_INDEX,
+  waveTime: 0,
+  schedule: [],
+  nextSpawnIndex: 0,
   fireTimer: 0,
-  isGameOver: false,
-});
+  status: 'playing',
+};
 
-// Объект один на всю игру, меняем его поля. При рестарте заполняем начальными значениями заново.
-const state = createInitialState();
+// ─── ВОЛНЫ ───────────────────────────────────────────────────────────────────
 
-hud.setWave(state.wave);
+const startWave = (waveIndex: number): void => {
+  const wave = WAVES[waveIndex];
 
-// ─── ШАГИ ИГРОВОГО ЦИКЛА ─────────────────────────────────────────────────────
+  state.waveIndex = waveIndex;
+  state.waveTime = 0;
+  state.schedule = buildWaveSchedule(wave);
+  state.nextSpawnIndex = 0;
+  hud.setWave({ number: waveIndex + 1, total: WAVES.length, name: wave.name });
+};
 
-// Враги волны появляются по одному: раз в SPAWN_INTERVAL секунд, пока не появятся все.
-const spawnEnemies = (delta: number): void => {
-  state.spawnTimer -= delta;
+// Выпускаем врагов, чьё время по расписанию уже наступило. Расписание отсортировано по времени,
+// поэтому такие события идут подряд с nextSpawnIndex. За один кадр их может быть несколько —
+// например, когда группа появляется вся разом.
+const spawnScheduledEnemies = (delta: number): void => {
+  state.waveTime += delta;
 
-  const isWaveSpawning = state.spawnedInWave < getWaveSize(state.wave);
+  const dueEvents = state.schedule.slice(state.nextSpawnIndex).filter(({ time }) => time <= state.waveTime);
 
-  if (state.spawnTimer > 0 || !isWaveSpawning) {
+  for (const point of dueEvents) {
+    spawnEnemy({ world, scene, entities: enemies, point });
+  }
+
+  state.nextSpawnIndex += dueEvents.length;
+};
+
+const winGame = (): void => {
+  state.status = 'won';
+
+  hud.showEndScreen({
+    title: 'Победа!',
+    hint: 'Все волны пройдены. Нажми, чтобы сыграть ещё раз',
+  });
+};
+
+const loseGame = (): void => {
+  state.status = 'lost';
+
+  hud.showEndScreen({
+    title: `Поражение — волна ${state.waveIndex + 1}`,
+    hint: 'Нажми, чтобы начать заново',
+  });
+};
+
+// Волна закончена, когда по расписанию появились все её враги и все убиты.
+// Следующая начинается сразу, а после последней — победа.
+const advanceWave = (): void => {
+  const isWaveCleared = state.nextSpawnIndex >= state.schedule.length && enemies.size === 0;
+
+  if (!isWaveCleared) {
     return;
   }
 
-  spawnEnemy({ world, scene, entities: enemies });
-  state.spawnedInWave += 1;
-  state.spawnTimer = SPAWN_INTERVAL;
+  const isLastWave = state.waveIndex === WAVES.length - 1;
+
+  if (isLastWave) {
+    winGame();
+
+    return;
+  }
+
+  startWave(state.waveIndex + 1);
 };
+
+// ─── СТРЕЛЬБА И СТОЛКНОВЕНИЯ ─────────────────────────────────────────────────
 
 // Раз в FIRE_INTERVAL секунд стреляем в ближайшего врага.
 // Если врагов нет, отсчёт остаётся на нуле, и выстрел случится сразу, как только враг появится.
@@ -94,14 +159,9 @@ const shoot = (delta: number): void => {
   state.fireTimer = FIRE_INTERVAL;
 };
 
-const endGame = (): void => {
-  state.isGameOver = true;
-  hud.showGameOver(state.wave);
-};
-
 // Разбираем столкновения, которые Rapier нашёл за последний шаг.
 // События приходят парами handle-ов коллайдеров в произвольном порядке, а нас интересуют две пары:
-// «враг + снаряд» — оба исчезают; «враг + игрок» — конец игры. Остальные (снаряд внутри игрока
+// «враг + снаряд» — оба исчезают; «враг + игрок» — поражение. Остальные (снаряд внутри игрока
 // сразу после выстрела и т. п.) пропускаем.
 const handleCollisions = (): void => {
   // Удалять тела прямо во время обхода событий нельзя — Rapier ещё читает их данные.
@@ -123,7 +183,7 @@ const handleCollisions = (): void => {
     }
 
     if (otherHandle === playerHandle) {
-      endGame();
+      loseGame();
 
       return;
     }
@@ -147,21 +207,8 @@ const handleCollisions = (): void => {
   }
 };
 
-// Волна закончена, когда все её враги появились и все убиты. Следующая начинается сразу.
-const advanceWave = (): void => {
-  const isWaveCleared = state.spawnedInWave >= getWaveSize(state.wave) && enemies.size === 0;
-
-  if (!isWaveCleared) {
-    return;
-  }
-
-  state.wave += 1;
-  state.spawnedInWave = 0;
-  hud.setWave(state.wave);
-};
-
 const updateGame = (delta: number): void => {
-  spawnEnemies(delta);
+  spawnScheduledEnemies(delta);
   shoot(delta);
   moveEnemies(enemies);
 
@@ -171,27 +218,40 @@ const updateGame = (delta: number): void => {
   world.step(eventQueue);
 
   handleCollisions();
+
+  // Если в этом шаге враг добрался до игрока, игра уже окончена — дальше не продолжаем.
+  if (state.status !== 'playing') {
+    return;
+  }
+
   removeFarProjectiles({ world, scene, entities: projectiles });
   advanceWave();
 };
 
-// ─── РЕСТАРТ ─────────────────────────────────────────────────────────────────
+// ─── СТАРТ И РЕСТАРТ ─────────────────────────────────────────────────────────
 
-// Новая игра без перезагрузки страницы: убираем всех врагов и снаряды и сбрасываем состояние.
+// Новая игра без перезагрузки страницы: убираем всех врагов и снаряды и начинаем со стартовой волны.
+const startGame = (): void => {
+  removeAllEntities({ world, scene, entities: enemies });
+  removeAllEntities({ world, scene, entities: projectiles });
+  state.fireTimer = 0;
+  state.status = 'playing';
+  hud.hideEndScreen();
+  startWave(START_WAVE_INDEX);
+};
+
 const restartGame = (): void => {
-  if (!state.isGameOver) {
+  if (state.status === 'playing') {
     return;
   }
 
-  removeAllEntities({ world, scene, entities: enemies });
-  removeAllEntities({ world, scene, entities: projectiles });
-  Object.assign(state, createInitialState());
-  hud.setWave(state.wave);
-  hud.hideGameOver();
+  startGame();
 };
 
+startGame();
+
 // Pointer-события объединяют палец, мышь и стилус. Слушаем окно целиком,
-// потому что после конца игры canvas закрыт экраном «Игра окончена».
+// потому что после конца игры canvas закрыт экраном с результатом.
 window.addEventListener('pointerdown', restartGame);
 
 // event.code — физическая клавиша ('Space'), не зависит от раскладки.
@@ -218,7 +278,7 @@ renderer.setAnimationLoop((time: number): void => {
   const delta = Math.min(timer.getDelta(), MAX_TIMESTEP);
 
   // После конца игры всё замирает, но сцену продолжаем рисовать.
-  if (!state.isGameOver) {
+  if (state.status === 'playing') {
     updateGame(delta);
   }
 
