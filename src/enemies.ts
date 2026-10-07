@@ -61,6 +61,10 @@ export const isEnemyOnFloor = (enemy: Pick<Enemy, 'body' | 'kind'>): boolean => 
   return isEnemyOverArena(enemy) && y >= 0 && y < enemy.kind.size * ON_FLOOR_HEIGHT_FRACTION;
 };
 
+// Проверка «враг выше потолка смерти?» — центр поднялся выше config.DEATH_CEILING_HEIGHT.
+export const isEnemyAboveCeiling = ({ body }: Pick<Enemy, 'body'>): boolean =>
+  body.translation().y > config.DEATH_CEILING_HEIGHT;
+
 // Проверка «враг ниже пола?» — центр ниже верхней поверхности пола (y = 0). На полу так не бывает:
 // пол твёрдый, и центр стоящего врага не ниже половины его роста. Значит, враг сорвался с края арены.
 export const isEnemyBelowFloor = ({ body }: Pick<Enemy, 'body'>): boolean => body.translation().y < 0;

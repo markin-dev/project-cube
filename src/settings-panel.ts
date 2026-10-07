@@ -60,6 +60,7 @@ const SECTIONS: Section[] = [
       { key: 'SPAWN_RADIUS', label: 'Радиус спавна, м', min: 3, max: 28, step: 0.5 },
       { key: 'DEATH_WALL_HEIGHT', label: 'Высота границы, м', min: 0, max: 10, step: 0.1 },
       { key: 'DEATH_WALL_OPACITY', label: 'Непрозрачность границы', min: 0, max: 1, step: 0.05 },
+      { key: 'DEATH_CEILING_HEIGHT', label: 'Потолок смерти, м', min: 2, max: 40, step: 0.5 },
       { key: 'ENEMY_COUNT_MULTIPLIER', label: 'Множитель врагов', min: 1, max: 1000, step: 1, apply: 'nextWave' },
       { key: 'DEFAULT_LINE_WIDTH', label: 'Ширина шеренги, м', min: 1, max: 20, step: 0.5, apply: 'nextWave' },
       { key: 'DEFAULT_CLUSTER_RADIUS', label: 'Радиус кучки, м', min: 0.5, max: 6, step: 0.1, apply: 'nextWave' },
