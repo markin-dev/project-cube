@@ -2,6 +2,10 @@
 // в первом же шаге выталкивает их с огромной скоростью, и они уродливо разлетаются. Поэтому перед появлением
 // проверяем, свободно ли место, и если нет — ищем ближайшее свободное: сначала рядом на полу, а если на полу
 // тесно — ярусом выше (враг появится в воздухе и упадёт на толпу), потом ещё выше и так до потолка смерти.
+//
+// Скорость важна: в огромной волне за один кадр появляются сотни врагов, и каждый перебирает сотни мест.
+// Поэтому соседей ищем не перебором всех врагов, а через сетку (см. «Сетка соседей» ниже), а в самом
+// горячем месте — проверке одного места — почти не создаём временных объектов.
 import * as THREE from 'three';
 import { config } from './config';
 import type { Enemies, Enemy } from './enemies';
@@ -11,14 +15,38 @@ import type { Point } from './patterns';
 // так что 12 колец — это примерно 12 его радиусов во все стороны.
 const SEARCH_RINGS = 12;
 
-// Коробка, которую занимает объект: центр и половина размера по каждой оси мира (X, Y, Z).
+// Коробка, которую занимает объект: центр и половина размера по каждой оси мира. Обычные числа,
+// а не векторы Three.js: таких коробок проверяются миллионы, и лишние объекты замедлили бы работу.
 type Box = {
-  center: THREE.Vector3;
-  halfSize: THREE.Vector3;
+  x: number;
+  y: number;
+  z: number;
+  halfX: number;
+  halfY: number;
+  halfZ: number;
 };
 
+// Готовые массивы [0, 1, …, count - 1] — создаются один раз на каждую длину и дальше берутся отсюда:
+// в проверке места они нужны миллионы раз. Изменять их нельзя — только перебирать.
+const INDICES_CACHE = new Map<number, number[]>();
+
 // Массив [0, 1, …, count - 1].
-const getIndices = (count: number): number[] => Array.from({ length: count }, (_, index) => index);
+const getIndices = (count: number): number[] => {
+  const cached = INDICES_CACHE.get(count);
+
+  if (cached) {
+    return cached;
+  }
+
+  const indices = Array.from({ length: count }, (_, index) => index);
+  INDICES_CACHE.set(count, indices);
+
+  return indices;
+};
+
+// Матрица и кватернион для расчёта коробок — одни на все вызовы, чтобы не создавать новые для каждого врага.
+const ROTATION = new THREE.Matrix4();
+const QUATERNION = new THREE.Quaternion();
 
 // Коробка, описанная вокруг куба врага с учётом его поворота: враг мог развернуться или опрокинуться,
 // и угол его куба торчит дальше половины стороны. Половина размера коробки по оси мира — сумма модулей
@@ -26,31 +54,108 @@ const getIndices = (count: number): number[] => Array.from({ length: count }, (_
 // по столбцам, поэтому строка X — элементы 0, 4, 8, строка Y — 1, 5, 9, строка Z — 2, 6, 10).
 const getEnemyBox = ({ body, kind }: Enemy): Box => {
   const half = kind.size / 2;
-  const rotation = new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().copy(body.rotation()));
-  const m = rotation.elements;
+  const m = ROTATION.makeRotationFromQuaternion(QUATERNION.copy(body.rotation())).elements;
+  const { x, y, z } = body.translation();
 
   return {
-    center: new THREE.Vector3().copy(body.translation()),
-    halfSize: new THREE.Vector3(
-      half * (Math.abs(m[0]) + Math.abs(m[4]) + Math.abs(m[8])),
-      half * (Math.abs(m[1]) + Math.abs(m[5]) + Math.abs(m[9])),
-      half * (Math.abs(m[2]) + Math.abs(m[6]) + Math.abs(m[10])),
-    ),
+    x,
+    y,
+    z,
+    halfX: half * (Math.abs(m[0]) + Math.abs(m[4]) + Math.abs(m[8])),
+    halfY: half * (Math.abs(m[1]) + Math.abs(m[5]) + Math.abs(m[9])),
+    halfZ: half * (Math.abs(m[2]) + Math.abs(m[6]) + Math.abs(m[10])),
   };
 };
 
 // Коробка куба со стороной size без поворота — так появляется новый враг, так же стоит куб-игрок.
-const getCubeBox = (center: THREE.Vector3, size: number): Box => ({
-  center,
-  halfSize: new THREE.Vector3(size / 2, size / 2, size / 2),
+const getCubeBox = ({ x, y, z, size }: Point & { y: number; size: number }): Box => ({
+  x,
+  y,
+  z,
+  halfX: size / 2,
+  halfY: size / 2,
+  halfZ: size / 2,
 });
 
-// Проверка «коробки не пересекаются, даже с зазором?». Две коробки не пересекаются, если хотя бы по одной
-// оси между ними есть просвет: расстояние между центрами не меньше суммы половин размеров плюс зазор.
-const isSeparated = (first: Box, second: Box, gap: number): boolean =>
-  Math.abs(first.center.x - second.center.x) >= first.halfSize.x + second.halfSize.x + gap ||
-  Math.abs(first.center.y - second.center.y) >= first.halfSize.y + second.halfSize.y + gap ||
-  Math.abs(first.center.z - second.center.z) >= first.halfSize.z + second.halfSize.z + gap;
+// ─── СЕТКА СОСЕДЕЙ ───────────────────────────────────────────────────────────
+// Пол делим на квадратные клетки и раскладываем по ним коробки всех врагов (и куба-игрока). Чтобы проверить
+// место, смотрим только клетки, на которые оно попадает, — там единицы соседей, а не сотни всех врагов арены.
+// Высоту клетки не учитывают: все ярусы над клеткой лежат в ней же.
+
+// Сторона клетки, м. Чуть больше самого крупного врага: тогда коробка обычно попадает в 1–4 клетки.
+const GRID_CELL_SIZE = 2;
+
+// Номер клетки — пара целых чисел (по X и по Z). Для ключа Map склеиваем их в одно число:
+// сдвигаем, чтобы отрицательные номера стали положительными, и умножаем первый на большой шаг.
+const GRID_INDEX_OFFSET = 10_000;
+const GRID_KEY_STRIDE = 100_000;
+
+// Сетка: ключ клетки → коробки, которые её задевают.
+type Grid = Map<number, Box[]>;
+
+const getCellIndex = (coordinate: number): number => Math.floor(coordinate / GRID_CELL_SIZE);
+
+const getCellKey = (cellX: number, cellZ: number): number =>
+  (cellX + GRID_INDEX_OFFSET) * GRID_KEY_STRIDE + (cellZ + GRID_INDEX_OFFSET);
+
+// Сколько клеток задевает отрезок [from, to] по одной оси, считая от клетки, где лежит from.
+const getCellCount = (from: number, to: number): number => getCellIndex(to) - getCellIndex(from) + 1;
+
+// Кладёт коробку во все клетки, которые она задевает по горизонтали.
+const addToGrid = (grid: Grid, box: Box): void => {
+  const firstX = getCellIndex(box.x - box.halfX);
+  const firstZ = getCellIndex(box.z - box.halfZ);
+
+  for (const offsetX of getIndices(getCellCount(box.x - box.halfX, box.x + box.halfX))) {
+    for (const offsetZ of getIndices(getCellCount(box.z - box.halfZ, box.z + box.halfZ))) {
+      const key = getCellKey(firstX + offsetX, firstZ + offsetZ);
+      const cell = grid.get(key);
+
+      if (cell) {
+        cell.push(box);
+      } else {
+        grid.set(key, [box]);
+      }
+    }
+  }
+};
+
+// Проверка «коробка не пересекается ни с одной из сетки, даже с зазором?». Пересечься с ней может только
+// коробка, задевающая ту же область, расширенную на зазор, — а такая лежит в одной из этих клеток.
+// Две коробки не пересекаются, если хотя бы по одной оси между ними есть просвет: расстояние между
+// центрами не меньше суммы половин размеров плюс зазор.
+const isFreeInGrid = ({ grid, box, gap }: { grid: Grid; box: Box; gap: number }): boolean => {
+  const fromX = box.x - box.halfX - gap;
+  const fromZ = box.z - box.halfZ - gap;
+  const firstX = getCellIndex(fromX);
+  const firstZ = getCellIndex(fromZ);
+
+  for (const offsetX of getIndices(getCellCount(fromX, box.x + box.halfX + gap))) {
+    for (const offsetZ of getIndices(getCellCount(fromZ, box.z + box.halfZ + gap))) {
+      const cell = grid.get(getCellKey(firstX + offsetX, firstZ + offsetZ));
+
+      // В пустой клетке проверять нечего.
+      if (!cell) {
+        continue;
+      }
+
+      for (const other of cell) {
+        const isSeparated =
+          Math.abs(box.x - other.x) >= box.halfX + other.halfX + gap ||
+          Math.abs(box.y - other.y) >= box.halfY + other.halfY + gap ||
+          Math.abs(box.z - other.z) >= box.halfZ + other.halfZ + gap;
+
+        if (!isSeparated) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+};
+
+// ─── ПОИСК МЕСТА ─────────────────────────────────────────────────────────────
 
 // Точки поиска на полу: сама исходная точка, потом кольца вокруг неё — от ближнего к дальнему.
 // На кольце точки идут с шагом примерно в радиус врага (длина окружности / радиус). Каждое кольцо
@@ -73,69 +178,73 @@ const getFloorCandidates = (point: Point, radius: number): Point[] => {
   return [point, ...rings];
 };
 
-type FreeSpawnPositionParams = {
+type SpawnRequest = {
   // Где враг должен появиться по описанию волны.
   point: Point;
 
   // Сторона куба нового врага.
   size: number;
-  enemies: Enemies;
 };
 
-// Возвращает позицию центра нового врага (с высотой): исходную точку на полу, если там свободно, иначе
-// ближайшее свободное место. Свободно — значит, коробка нового врага не пересекается с коробками живых врагов
-// и куба-игрока с зазором SPAWN_GAP. Если и до потолка места нет (огромная толпа), враг появится в исходной
-// точке на полу, как и раньше.
-export const findFreeSpawnPosition = ({ point, size, enemies }: FreeSpawnPositionParams): THREE.Vector3 => {
-  const gap = config.SPAWN_GAP;
+// Подбирает место одному врагу: возвращает позицию его центра (с высотой).
+export type SpawnPlacer = (request: SpawnRequest) => THREE.Vector3;
 
-  // Шаг колец поиска — половина диагонали основания куба: так соседние точки на кольце почти не дублируют
-  // друг друга, но и не пропускают свободных мест.
-  const radius = (size * Math.SQRT2) / 2;
-  const searchDistance = SEARCH_RINGS * radius;
-  const player = getCubeBox(new THREE.Vector3(0, config.PLAYER_SIZE / 2, 0), config.PLAYER_SIZE);
+// Создаёт подборщик мест на один кадр: раскладывает живых врагов и куб-игрока по сетке. Пока враги
+// появляются в этом кадре, никто не двигается, поэтому сетку достаточно построить один раз, а каждого
+// появившегося врага подборщик сам добавляет в неё — следующие уже не встанут на его место.
+// В следующем кадре все сдвинутся — нужен новый подборщик.
+export const createSpawnPlacer = (enemies: Enemies): SpawnPlacer => {
+  const grid: Grid = new Map();
+  const playerSize = config.PLAYER_SIZE;
 
-  // Сразу отбираем только соседей, которые по горизонтали могут помешать хоть одной точке поиска:
-  // при сотнях врагов иначе пришлось бы проверять каждого врага для каждой точки.
-  const neighbors = [player, ...[...enemies.values()].map(getEnemyBox)].filter(
-    ({ center, halfSize }) =>
-      Math.abs(center.x - point.x) < searchDistance + size / 2 + halfSize.x + gap &&
-      Math.abs(center.z - point.z) < searchDistance + size / 2 + halfSize.z + gap,
-  );
+  addToGrid(grid, getCubeBox({ x: 0, y: playerSize / 2, z: 0, size: playerSize }));
 
-  const isFree = (position: THREE.Vector3): boolean => {
-    const box = getCubeBox(position, size);
-
-    return neighbors.every((neighbor) => isSeparated(box, neighbor, gap));
-  };
-
-  // Точка за краем арены не годится: враг, чей центр за краем, сразу погибает. Оставляем запас в полкуба,
-  // чтобы и сам куб целиком был над полом. Исходную точку не проверяем — её задало описание волны.
-  const halfArena = config.ARENA_SIZE / 2 - size / 2;
-
-  const floorCandidates = getFloorCandidates(point, radius).filter(
-    (candidate, index) => index === 0 || (Math.abs(candidate.x) <= halfArena && Math.abs(candidate.z) <= halfArena),
-  );
-
-  // Ярусы по высоте: на полу (центр на половине роста) и выше — каждый следующий на рост врага плюс зазор.
-  // Ярусов столько, сколько помещается под потолком смерти: выше него враг сразу погиб бы.
-  const layerStep = size + gap;
-  const layersCount = Math.max(1, Math.floor((config.DEATH_CEILING_HEIGHT - size) / layerStep) + 1);
-
-  // Перебираем позиции по порядку: весь пол (исходная точка и кольца), потом весь первый ярус и т. д.
-  // Возвращаем первую свободную — то есть ближайшую; выше поднимаемся, только если ниже тесно.
-  // Перебор с ранним выходом, а не готовый список: ярусов и точек может быть тысячи на каждого врага.
-  for (const layer of getIndices(layersCount)) {
-    const y = size / 2 + layer * layerStep;
-
-    for (const { x, z } of floorCandidates) {
-      const position = new THREE.Vector3(x, y, z);
-
-      if (isFree(position)) {
-        return position;
-      }
-    }
+  for (const enemy of enemies.values()) {
+    addToGrid(grid, getEnemyBox(enemy));
   }
 
-  return new THREE.Vector3(point.x, size / 2, point.z);
+  // Возвращает исходную точку на полу, если там свободно, иначе ближайшее свободное место. Свободно — значит,
+  // коробка нового врага не пересекается с коробками врагов и куба-игрока с зазором SPAWN_GAP. Если и до потолка
+  // места нет (огромная толпа), враг появится в исходной точке на полу, как и раньше.
+  return ({ point, size }: SpawnRequest): THREE.Vector3 => {
+    const gap = config.SPAWN_GAP;
+
+    // Шаг колец поиска — половина диагонали основания куба: так соседние точки на кольце почти не дублируют
+    // друг друга, но и не пропускают свободных мест.
+    const radius = (size * Math.SQRT2) / 2;
+
+    // Точка за краем арены не годится: враг, чей центр за краем, сразу погибает. Оставляем запас в полкуба,
+    // чтобы и сам куб целиком был над полом. Исходную точку не проверяем — её задало описание волны.
+    const halfArena = config.ARENA_SIZE / 2 - size / 2;
+
+    const floorCandidates = getFloorCandidates(point, radius).filter(
+      (candidate, index) => index === 0 || (Math.abs(candidate.x) <= halfArena && Math.abs(candidate.z) <= halfArena),
+    );
+
+    // Ярусы по высоте: на полу (центр на половине роста) и выше — каждый следующий на рост врага плюс зазор.
+    // Ярусов столько, сколько помещается под потолком смерти: выше него враг сразу погиб бы.
+    const layerStep = size + gap;
+    const layersCount = Math.max(1, Math.floor((config.DEATH_CEILING_HEIGHT - size) / layerStep) + 1);
+
+    // Занимаем найденное место в сетке — следующие враги этого кадра его обойдут.
+    const occupy = (position: Point & { y: number }): THREE.Vector3 => {
+      addToGrid(grid, getCubeBox({ ...position, size }));
+
+      return new THREE.Vector3(position.x, position.y, position.z);
+    };
+
+    // Перебираем позиции по порядку: весь пол (исходная точка и кольца), потом весь первый ярус и т. д.
+    // Возвращаем первую свободную — то есть ближайшую; выше поднимаемся, только если ниже тесно.
+    for (const layer of getIndices(layersCount)) {
+      const y = size / 2 + layer * layerStep;
+
+      for (const { x, z } of floorCandidates) {
+        if (isFreeInGrid({ grid, box: getCubeBox({ x, y, z, size }), gap })) {
+          return occupy({ x, y, z });
+        }
+      }
+    }
+
+    return occupy({ x: point.x, y: size / 2, z: point.z });
+  };
 };

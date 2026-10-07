@@ -36,7 +36,7 @@ import {
 import { createScene, refreshSceneLook } from './scene';
 import { buildWaveSchedule, type GroupSchedule } from './schedule';
 import { createSettingsPanel } from './settings-panel';
-import { findFreeSpawnPosition } from './spawn-placement';
+import { createSpawnPlacer } from './spawn-placement';
 import { createSpeedSwitch } from './speed-switch';
 import { WAVES } from './waves';
 
@@ -190,20 +190,32 @@ const spawnScheduledEnemies = (delta: number): void => {
   state.waveTime += delta;
   startDueGroups();
 
-  for (const group of state.groups) {
+  // Наступившие события каждой начавшейся группы.
+  const dueByGroup = state.groups.map((group) => {
     if (group.startTime === undefined) {
-      continue;
+      return [];
     }
 
     const elapsed = state.waveTime - group.startTime;
-    const dueEvents = group.events.slice(group.spawnedCount).filter(({ time }) => time <= elapsed);
 
-    // Точку из расписания сдвигаем к свободному месту, если там уже кто-то стоит, — рядом на полу или,
-    // если на полу тесно, ярусом выше (см. spawn-placement.ts). Враги, появившиеся раньше в этом же кадре,
-    // уже в списке enemies — их тоже учитываем.
+    return group.events.slice(group.spawnedCount).filter(({ time }) => time <= elapsed);
+  });
+
+  // Если появляться некому — выходим, не строя сетку для поиска мест.
+  if (dueByGroup.every((dueEvents) => dueEvents.length === 0)) {
+    return;
+  }
+
+  // Точку из расписания сдвигаем к свободному месту, если там уже кто-то стоит, — рядом на полу или,
+  // если на полу тесно, ярусом выше (см. spawn-placement.ts). Подборщик мест строится один раз на шаг
+  // и сам учитывает врагов, которые появляются в этом же шаге.
+  const placeEnemy = createSpawnPlacer(enemies);
+
+  for (const [index, group] of state.groups.entries()) {
+    const dueEvents = dueByGroup[index];
+
     for (const event of dueEvents) {
-      const size = config.ENEMY_KINDS[event.kindName].size;
-      const position = findFreeSpawnPosition({ point: event, size, enemies });
+      const position = placeEnemy({ point: event, size: config.ENEMY_KINDS[event.kindName].size });
 
       spawnEnemy({ world, scene, entities: enemies, position, kindName: event.kindName });
     }
