@@ -3,9 +3,9 @@ import * as THREE from 'three';
 import { PROJECTILE_GROUPS } from './collision-groups';
 import {
   ARENA_SIZE,
+  PROJECTILE_AIM_HEIGHT,
   PROJECTILE_COLOR,
   PROJECTILE_DAMAGE,
-  PROJECTILE_HEIGHT,
   PROJECTILE_MASS,
   PROJECTILE_SIZE,
   PROJECTILE_SPEED,
@@ -61,8 +61,9 @@ export const findTarget = ({ enemies, projectiles }: { enemies: Enemies; project
       undefined,
     );
 
-// Выпускает пулю из центра игрока в сторону цели — горизонтально, на высоте ствола PROJECTILE_HEIGHT.
-// Упреждения нет: враги идут прямо на игрока, то есть навстречу пуле.
+// Выпускает пулю из центра игрока в сторону цели — горизонтально, на высоте PROJECTILE_AIM_HEIGHT
+// от роста цели (у маленьких врагов ниже, у больших выше). Упреждения нет: враги идут прямо на игрока,
+// то есть навстречу пуле.
 export const fireProjectile = ({
   world,
   scene,
@@ -71,6 +72,7 @@ export const fireProjectile = ({
 }: EntityContext<Projectile> & { target: Target }): void => {
   const { x, z } = target.enemy.body.translation();
   const distance = Math.hypot(x, z);
+  const height = target.enemy.kind.size * PROJECTILE_AIM_HEIGHT;
 
   if (distance === 0) {
     return;
@@ -82,7 +84,7 @@ export const fireProjectile = ({
   // симуляции она успела бы глубоко влезть во врага, и физика выталкивала бы её с лишней силой.
   const body = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(0, PROJECTILE_HEIGHT, 0)
+      .setTranslation(0, height, 0)
       .setLinvel((x / distance) * PROJECTILE_SPEED, 0, (z / distance) * PROJECTILE_SPEED)
       .setGravityScale(0)
       .setCcdEnabled(true),

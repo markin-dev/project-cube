@@ -4,40 +4,68 @@ import { ENEMY_GROUPS } from './collision-groups';
 import {
   ENEMY_ACCELERATION,
   ENEMY_ANGULAR_DAMPING,
-  ENEMY_COLOR,
   ENEMY_FRICTION,
+  ENEMY_KINDS,
   ENEMY_LINEAR_DAMPING,
-  ENEMY_MASS,
-  ENEMY_MAX_HP,
   ENEMY_RESTITUTION,
-  ENEMY_SIZE,
   ENEMY_SPEED,
   HP_BAR_GAP,
+  type EnemyKind,
+  type EnemyKindName,
 } from './config';
 import type { CubeEntity, Entities, EntityContext } from './entity';
 import { createHpBar, setHpBarValue, turnToCamera, type HpBar } from './hp-bar';
 import type { Point } from './patterns';
 
-// Враг — куб, который вращается вместе с телом (см. CubeEntity), плюс здоровье и полоска здоровья.
+// Враг — куб, который вращается вместе с телом (см. CubeEntity), плюс его тип (размер, масса,
+// здоровье, цвет — см. ENEMY_KINDS в config.ts), текущее здоровье и полоска здоровья.
 export type Enemy = CubeEntity & {
+  kind: EnemyKind;
   hp: number;
   hpBar: HpBar;
 };
 
 export type Enemies = Entities<Enemy>;
 
-// Геометрия и материал общие для всех врагов: незачем создавать новые для каждого,
+// Проверка «это строка — имя типа врага?». Возвращает boolean, а запись `name is EnemyKindName`
+// сообщает TypeScript: если проверка прошла, дальше name — именно EnemyKindName.
+const isEnemyKindName = (name: string): name is EnemyKindName => name in ENEMY_KINDS;
+
+// Имена всех типов врагов. Object.keys возвращает просто строки, фильтр с проверкой выше
+// превращает их в список имён типов, понятный TypeScript.
+export const ENEMY_KIND_NAMES = Object.keys(ENEMY_KINDS).filter(isEnemyKindName);
+
+// Геометрия и материал — общие для всех врагов одного типа: незачем создавать новые для каждого,
 // Three.js умеет рисовать много мешей с одной геометрией и одним материалом.
-const ENEMY_GEOMETRY = new THREE.BoxGeometry(ENEMY_SIZE, ENEMY_SIZE, ENEMY_SIZE);
-const ENEMY_MATERIAL = new THREE.MeshLambertMaterial({ color: ENEMY_COLOR });
+// Создаём их один раз на каждый тип и храним по имени типа.
+const KIND_LOOKS = Object.fromEntries(
+  ENEMY_KIND_NAMES.map((name) => {
+    const { size, color } = ENEMY_KINDS[name];
 
-// Враг стоит на полу, а не летит, если его центр ниже этой высоты. Куб, лежащий на грани, держит центр
-// на высоте половины стороны, а застывший на ребре или вершине — до ~0.87 стороны. Чуть выше — уже полёт.
-const ON_FLOOR_HEIGHT = ENEMY_SIZE * 0.9;
+    return [
+      name,
+      { geometry: new THREE.BoxGeometry(size, size, size), material: new THREE.MeshLambertMaterial({ color }) },
+    ];
+  }),
+);
 
-// Создаёт врага в точке point на полу. Где именно — решают паттерны волны (src/patterns.ts).
-export const spawnEnemy = ({ world, scene, entities, point }: EntityContext<Enemy> & { point: Point }): void => {
+// Враг стоит на полу, а не летит, если его центр ниже этой доли его размера. Куб, лежащий на грани,
+// держит центр на высоте половины стороны, а застывший на ребре или вершине — до ~0.87 стороны.
+// Чуть выше — уже полёт.
+const ON_FLOOR_HEIGHT_FRACTION = 0.9;
+
+// Создаёт врага типа kindName в точке point на полу. Где и какого типа — решает описание волны
+// (src/waves.ts, src/patterns.ts).
+export const spawnEnemy = ({
+  world,
+  scene,
+  entities,
+  point,
+  kindName,
+}: EntityContext<Enemy> & { point: Point; kindName: EnemyKindName }): void => {
   const { x, z } = point;
+  const kind = ENEMY_KINDS[kindName];
+  const { size, mass, hp } = kind;
 
   // dynamic — тело, которым управляет физика: оно падает, отлетает от ударов, кувыркается
   // и толкает других врагов. Затухание гасит полёт и вращение, как сопротивление воздуха.
@@ -45,7 +73,7 @@ export const spawnEnemy = ({ world, scene, entities, point }: EntityContext<Enem
   // между двумя шагами симуляции.
   const body = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(x, ENEMY_SIZE / 2, z)
+      .setTranslation(x, size / 2, z)
       .setLinearDamping(ENEMY_LINEAR_DAMPING)
       .setAngularDamping(ENEMY_ANGULAR_DAMPING)
       .setCcdEnabled(true),
@@ -57,8 +85,8 @@ export const spawnEnemy = ({ world, scene, entities, point }: EntityContext<Enem
   // Правило Max берёт большее из двух значений: у пола они нулевые, поэтому о пол и о других врагов
   // работают ровно числа из конфига.
   const collider = world.createCollider(
-    RAPIER.ColliderDesc.cuboid(ENEMY_SIZE / 2, ENEMY_SIZE / 2, ENEMY_SIZE / 2)
-      .setMass(ENEMY_MASS)
+    RAPIER.ColliderDesc.cuboid(size / 2, size / 2, size / 2)
+      .setMass(mass)
       .setFriction(ENEMY_FRICTION)
       .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Max)
       .setRestitution(ENEMY_RESTITUTION)
@@ -70,31 +98,32 @@ export const spawnEnemy = ({ world, scene, entities, point }: EntityContext<Enem
   // Видимый враг — группа, которая только двигается вместе с телом. Внутри неё:
   // куб — вращается вместе с телом (кувыркается);
   // полоска здоровья — не вращается и висит над центром врага, на полстороны куба плюс зазор выше.
-  const cube = new THREE.Mesh(ENEMY_GEOMETRY, ENEMY_MATERIAL);
+  const { geometry, material } = KIND_LOOKS[kindName];
+  const cube = new THREE.Mesh(geometry, material);
   const hpBar = createHpBar();
-  hpBar.group.position.y = ENEMY_SIZE / 2 + HP_BAR_GAP;
+  hpBar.group.position.y = size / 2 + HP_BAR_GAP;
 
   const object = new THREE.Group();
   object.add(cube, hpBar.group);
   object.position.copy(body.translation());
   scene.add(object);
 
-  entities.set(collider.handle, { body, object, cube, hp: ENEMY_MAX_HP, hpBar });
+  entities.set(collider.handle, { body, object, cube, kind, hp, hpBar });
 };
 
 // Отнимает здоровье и обновляет полоску. Что делать с погибшим (hp <= 0) — решает вызывающий код.
 export const damageEnemy = (enemy: Enemy, damage: number): void => {
   enemy.hp -= damage;
-  setHpBarValue(enemy.hpBar, enemy.hp / ENEMY_MAX_HP);
+  setHpBarValue(enemy.hpBar, enemy.hp / enemy.kind.hp);
 };
 
 // Каждый кадр враги, стоящие на полу, разгоняются к центру арены, где стоит игрок.
 // Скорость не задаётся жёстко, а меняется не больше чем на ENEMY_ACCELERATION × delta за кадр:
 // иначе любой толчок от удара гасился бы в следующем же кадре. Враг в воздухе не управляется.
 export const moveEnemies = (enemies: Enemies, delta: number): void => {
-  for (const { body } of enemies.values()) {
+  for (const { body, kind } of enemies.values()) {
     const position = body.translation();
-    const isOnFloor = position.y < ON_FLOOR_HEIGHT;
+    const isOnFloor = position.y < kind.size * ON_FLOOR_HEIGHT_FRACTION;
     const distance = Math.hypot(position.x, position.z);
 
     // В самом центре стоит игрок, враг туда не попадёт, но делить на ноль всё равно не будем.

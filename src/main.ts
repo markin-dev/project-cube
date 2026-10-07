@@ -103,8 +103,8 @@ const spawnScheduledEnemies = (delta: number): void => {
 
   const dueEvents = state.schedule.slice(state.nextSpawnIndex).filter(({ time }) => time <= state.waveTime);
 
-  for (const point of dueEvents) {
-    spawnEnemy({ world, scene, entities: enemies, point });
+  for (const event of dueEvents) {
+    spawnEnemy({ world, scene, entities: enemies, point: event, kindName: event.kindName });
   }
 
   state.nextSpawnIndex += dueEvents.length;
