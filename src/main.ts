@@ -3,10 +3,18 @@
 // Какие волны идут и как враги в них появляются — в waves.ts, patterns.ts и schedule.ts.
 import type { ColliderHandle } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { DAMAGE_NUMBER_HEIGHT, FIRE_INTERVAL, PROJECTILE_DAMAGE } from './config';
-import { turnIntoCorpse, updateCorpses, type Corpses } from './corpses';
+import { config } from './config';
+import { refreshCorpseLook, turnIntoCorpse, updateCorpses, type Corpses } from './corpses';
 import { createDamageNumbers } from './damage-numbers';
-import { damageEnemy, moveEnemies, spawnEnemy, turnHpBarsToCamera, type Enemies, type Enemy } from './enemies';
+import {
+  damageEnemy,
+  moveEnemies,
+  refreshEnemyColors,
+  spawnEnemy,
+  turnHpBarsToCamera,
+  type Enemies,
+  type Enemy,
+} from './enemies';
 import {
   removeAllEntities,
   removeEntity,
@@ -14,12 +22,20 @@ import {
   syncCubeRotations,
   syncPositions,
 } from './entity';
+import { refreshHpBarColors } from './hp-bar';
 import { createHud } from './hud';
 import { createPhysics } from './physics';
-import { createPlayer } from './player';
-import { findTarget, fireProjectile, removeFarProjectiles, type Projectiles } from './projectiles';
-import { createScene } from './scene';
+import { createPlayer, refreshPlayerColor } from './player';
+import {
+  findTarget,
+  fireProjectile,
+  refreshProjectileColor,
+  removeFarProjectiles,
+  type Projectiles,
+} from './projectiles';
+import { createScene, refreshSceneColors } from './scene';
 import { buildWaveSchedule, type SpawnEvent } from './schedule';
+import { createSettingsPanel } from './settings-panel';
 import { WAVES } from './waves';
 
 // Самый длинный шаг симуляции. После лага или возвращения на вкладку кадр может длиться секунды,
@@ -44,6 +60,20 @@ const { scene, camera, renderer } = createScene();
 const hud = createHud();
 const showDamageNumber = createDamageNumbers();
 const playerHandle = createPlayer({ world, scene });
+
+// Применяет изменения из панели настроек, которые игра сама не подхватит: общие материалы перекрашиваем,
+// гравитацию задаём миру. Всё остальное код и так читает из config в момент использования.
+const applyLiveConfig = (): void => {
+  refreshSceneColors(scene);
+  refreshPlayerColor();
+  refreshEnemyColors();
+  refreshProjectileColor();
+  refreshHpBarColors();
+  refreshCorpseLook();
+  world.gravity = { x: 0, y: -config.GRAVITY, z: 0 };
+};
+
+const settingsPanel = createSettingsPanel({ onChange: applyLiveConfig });
 
 // Живые враги, летящие снаряды и призраки погибших врагов. Ключ — handle коллайдера (см. entity.ts).
 const enemies: Enemies = new Map();
@@ -150,7 +180,7 @@ const advanceWave = (): void => {
 
 // ─── СТРЕЛЬБА И СТОЛКНОВЕНИЯ ─────────────────────────────────────────────────
 
-// Раз в FIRE_INTERVAL секунд стреляем в ближайшего врага, которого летящие снаряды ещё не добьют.
+// Раз в config.FIRE_INTERVAL секунд стреляем в ближайшего врага, которого летящие снаряды ещё не добьют.
 // Если стрелять не в кого, отсчёт остаётся на нуле, и выстрел случится сразу, как только цель появится.
 const shoot = (delta: number): void => {
   state.fireTimer -= delta;
@@ -166,7 +196,7 @@ const shoot = (delta: number): void => {
   }
 
   fireProjectile({ world, scene, entities: projectiles, target });
-  state.fireTimer = FIRE_INTERVAL;
+  state.fireTimer = config.FIRE_INTERVAL;
 };
 
 // Наносит урон врагу и показывает число урона чуть выше его полоски здоровья.
@@ -175,7 +205,7 @@ const hitEnemy = (enemy: Enemy, damage: number): void => {
   damageEnemy(enemy, damage);
 
   const position = enemy.hpBar.group.getWorldPosition(new THREE.Vector3());
-  position.y += DAMAGE_NUMBER_HEIGHT;
+  position.y += config.DAMAGE_NUMBER_HEIGHT;
   showDamageNumber({ position, damage, camera });
 };
 
@@ -204,7 +234,7 @@ const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
     return;
   }
 
-  hitEnemy(enemy, PROJECTILE_DAMAGE);
+  hitEnemy(enemy, config.PROJECTILE_DAMAGE);
 
   if (enemy.hp <= 0) {
     turnIntoCorpse({ world, enemies, corpses, handle: enemyHandle });
@@ -300,12 +330,18 @@ startGame();
 
 // Pointer-события объединяют палец, мышь и стилус. Слушаем окно целиком,
 // потому что после конца игры canvas закрыт экраном с результатом.
-window.addEventListener('pointerdown', restartGame);
+// Клики по панели настроек игру не перезапускают — иначе после поражения нельзя было бы ничего подкрутить.
+window.addEventListener('pointerdown', (event: PointerEvent): void => {
+  if (!settingsPanel.isPanelTarget(event.target)) {
+    restartGame();
+  }
+});
 
 // event.code — физическая клавиша ('Space'), не зависит от раскладки.
 // event.repeat === true, когда клавишу держат и браузер шлёт повторные нажатия, — их пропускаем.
+// Пробел в полях панели настроек тоже не считается.
 window.addEventListener('keydown', (event: KeyboardEvent): void => {
-  if (event.code === 'Space' && !event.repeat) {
+  if (event.code === 'Space' && !event.repeat && !settingsPanel.isPanelTarget(event.target)) {
     restartGame();
   }
 });

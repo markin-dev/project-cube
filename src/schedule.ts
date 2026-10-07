@@ -1,4 +1,4 @@
-import { ENEMY_COUNT_MULTIPLIER, type EnemyKindName } from './config';
+import { config, type EnemyKindName } from './config';
 import { ENEMY_KIND_NAMES } from './enemies';
 import { getShapePoints, type Point } from './patterns';
 import type { Wave } from './waves';
@@ -17,14 +17,14 @@ const getRandomKindName = (): EnemyKindName => ENEMY_KIND_NAMES[Math.floor(Math.
 // Потом события всех групп сливаются в один список, отсортированный по времени,
 // — игровому циклу остаётся доставать их по порядку, пока время события наступило.
 // Точки и случайные типы считаются в момент вызова, поэтому каждый раз новые.
-// ENEMY_COUNT_MULTIPLIER (см. config.ts) умножает число врагов в группе и во столько же раз
+// config.ENEMY_COUNT_MULTIPLIER (см. config.ts) умножает число врагов в группе и во столько же раз
 // сокращает интервал между ними — группа появляется за то же время, но гуще.
 export const buildWaveSchedule = (wave: Wave): SpawnEvent[] =>
   wave.groups
     .flatMap(({ shape, delay = 0, interval = 0, enemy }) =>
-      getShapePoints({ ...shape, count: shape.count * ENEMY_COUNT_MULTIPLIER }).map((point, index) => ({
+      getShapePoints({ ...shape, count: shape.count * config.ENEMY_COUNT_MULTIPLIER }).map((point, index) => ({
         ...point,
-        time: delay + (index * interval) / ENEMY_COUNT_MULTIPLIER,
+        time: delay + (index * interval) / config.ENEMY_COUNT_MULTIPLIER,
         kindName: enemy ?? getRandomKindName(),
       })),
     )

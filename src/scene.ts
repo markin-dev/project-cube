@@ -1,12 +1,14 @@
 // THREE — графика: рисует объекты на экране. О физике ничего не знает.
 import * as THREE from 'three';
-import { ARENA_SIZE, BACKGROUND_COLOR, FLOOR_COLOR } from './config';
+import { config } from './config';
 
 // ─── РАСЧЁТ ВИДИМОЙ ОБЛАСТИ ──────────────────────────────────────────────────
 
 // В изометрии камера смотрит на пол по диагонали, поэтому квадрат арены выглядит как ромб.
 // Левый и правый углы ромба — концы диагонали пола, до них от центра половина диагонали.
-const ARENA_HALF_DIAGONAL = (ARENA_SIZE / 2) * Math.SQRT2;
+// Размер арены читается один раз при загрузке: пол и камера создаются один раз, поэтому
+// ARENA_SIZE из панели настроек применяется только после перезагрузки страницы.
+const ARENA_HALF_DIAGONAL = (config.ARENA_SIZE / 2) * Math.SQRT2;
 
 // Верхний и нижний углы ромба — тоже концы диагонали, но камера смотрит на неё под углом ~35°,
 // и в изометрии она сжимается ровно в √3 раз.
@@ -18,6 +20,9 @@ const NEED_HALF_HEIGHT = (ARENA_HALF_DIAGONAL / Math.sqrt(3)) * VIEW_MARGIN;
 // Расстояние камеры от центра по каждой оси. На картинку в ортографической камере не влияет,
 // важно лишь, чтобы вся арена оказалась между ближней и дальней границами отрисовки.
 const CAMERA_DISTANCE = 30;
+
+// Материал пола общий на модуль, чтобы его цвет можно было поменять из панели настроек (refreshSceneColors).
+const FLOOR_MATERIAL = new THREE.MeshLambertMaterial({ color: config.FLOOR_COLOR });
 
 type SceneParts = {
   scene: THREE.Scene;
@@ -46,7 +51,7 @@ const fitCamera = (camera: THREE.OrthographicCamera): void => {
 export const createScene = (): SceneParts => {
   // Сцена — контейнер для всего, что нужно нарисовать: объектов, света, камер.
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(BACKGROUND_COLOR);
+  scene.background = new THREE.Color(config.BACKGROUND_COLOR);
 
   // Ортографическая камера, в отличие от перспективной, не уменьшает дальние объекты —
   // так устроены изометрические игры. Границы видимой области задаёт fitCamera,
@@ -86,13 +91,9 @@ export const createScene = (): SceneParts => {
 
   // ─── ПОЛ ───────────────────────────────────────────────────────────────────
 
-  // Пол только для вида: физике он не нужен, потому что гравитации нет и тела не падают.
-  // Высота 0.2, центр опущен на 0.1 — верхняя поверхность ровно на y = 0.
-  const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(ARENA_SIZE, 0.2, ARENA_SIZE),
-    new THREE.MeshLambertMaterial({ color: FLOOR_COLOR }),
-  );
-
+  // Видимый пол. Сталкиваются тела не с ним, а с его физическим двойником — коллайдером
+  // такого же размера из physics.ts. Высота 0.2, центр опущен на 0.1 — верхняя поверхность ровно на y = 0.
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(config.ARENA_SIZE, 0.2, config.ARENA_SIZE), FLOOR_MATERIAL);
   floor.position.y = -0.1;
   scene.add(floor);
 
@@ -103,4 +104,10 @@ export const createScene = (): SceneParts => {
   });
 
   return { scene, camera, renderer };
+};
+
+// Перекрашивает фон и пол по текущему конфигу — вызывается, когда цвета меняют в панели настроек.
+export const refreshSceneColors = (scene: THREE.Scene): void => {
+  scene.background = new THREE.Color(config.BACKGROUND_COLOR);
+  FLOOR_MATERIAL.color.set(config.FLOOR_COLOR);
 };

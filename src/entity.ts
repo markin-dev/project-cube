@@ -1,6 +1,6 @@
 import type { ColliderHandle, RigidBody, World } from '@dimforge/rapier3d-compat';
 import type { Mesh, Object3D, Scene } from 'three';
-import { FALL_REMOVE_HEIGHT } from './config';
+import { config } from './config';
 
 // Игровой объект = физическое тело (Rapier) + видимый объект (Three.js).
 // Физика двигает тело, а мы каждый кадр переносим его положение на видимый объект.
@@ -58,10 +58,10 @@ export const removeAllEntities = <T extends Entity>({ world, scene, entities }: 
   }
 };
 
-// Удаляет объекты, упавшие с арены ниже FALL_REMOVE_HEIGHT: дальше они падали бы вечно.
+// Удаляет объекты, упавшие с арены ниже config.FALL_REMOVE_HEIGHT: дальше они падали бы вечно.
 export const removeFallenEntities = <T extends Entity>({ world, scene, entities }: EntityContext<T>): void => {
   for (const [handle, { body }] of entities) {
-    if (body.translation().y < FALL_REMOVE_HEIGHT) {
+    if (body.translation().y < config.FALL_REMOVE_HEIGHT) {
       removeEntity({ world, scene, entities, handle });
     }
   }

@@ -1,7 +1,7 @@
 // Паттерны — формы, по которым расставляются враги группы. Каждая форма — функция,
 // которая по параметрам возвращает список точек на полу. КОГДА враги появятся в этих точках,
 // решает не форма, а тайминг группы (см. src/waves.ts и src/schedule.ts).
-import { DEFAULT_CLUSTER_RADIUS, DEFAULT_LINE_WIDTH, SPAWN_RADIUS } from './config';
+import { config } from './config';
 
 // Точка на полу. Высоту (y) задаёт сам враг при появлении.
 export type Point = {
@@ -73,7 +73,7 @@ const getScreenDirection = (degrees: number): Point => {
 const getSpawnCirclePoint = (degrees: number): Point => {
   const direction = getScreenDirection(degrees);
 
-  return { x: direction.x * SPAWN_RADIUS, z: direction.z * SPAWN_RADIUS };
+  return { x: direction.x * config.SPAWN_RADIUS, z: direction.z * config.SPAWN_RADIUS };
 };
 
 const getRandomAngle = (): number => Math.random() * 360;
@@ -102,7 +102,11 @@ const getCirclePoints = ({ count, angle = getRandomAngle(), arc = 360 }: CircleS
 const getRandomPoints = ({ count, angle = getRandomAngle(), arc = 360 }: RandomShape): Point[] =>
   getIndices(count).map(() => getSpawnCirclePoint(angle - arc / 2 + Math.random() * arc));
 
-const getLinePoints = ({ count, angle = getRandomAngle(), width = DEFAULT_LINE_WIDTH }: LineShape): Point[] => {
+const getLinePoints = ({
+  count,
+  angle = getRandomAngle(),
+  width = config.DEFAULT_LINE_WIDTH,
+}: LineShape): Point[] => {
   const center = getSpawnCirclePoint(angle);
 
   // Ряд идёт поперёк направления на куб, то есть вдоль направления «угол + 90°» — по часовой.
@@ -117,7 +121,11 @@ const getLinePoints = ({ count, angle = getRandomAngle(), width = DEFAULT_LINE_W
   }));
 };
 
-const getClusterPoints = ({ count, angle = getRandomAngle(), radius = DEFAULT_CLUSTER_RADIUS }: ClusterShape): Point[] => {
+const getClusterPoints = ({
+  count,
+  angle = getRandomAngle(),
+  radius = config.DEFAULT_CLUSTER_RADIUS,
+}: ClusterShape): Point[] => {
   const center = getSpawnCirclePoint(angle);
 
   // Случайная точка в круге: случайное направление и случайное расстояние.
