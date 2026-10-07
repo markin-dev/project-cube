@@ -1,7 +1,29 @@
-import RAPIER from '@dimforge/rapier3d-compat';
+import RAPIER, { type ColliderHandle } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { ARENA_SIZE, PLAYER_SIZE, PROJECTILE_COLOR, PROJECTILE_SIZE, PROJECTILE_SPEED } from './config';
+import {
+  ARENA_SIZE,
+  PLAYER_SIZE,
+  PROJECTILE_COLOR,
+  PROJECTILE_DAMAGE,
+  PROJECTILE_SIZE,
+  PROJECTILE_SPEED,
+} from './config';
+import type { Enemies, Enemy } from './enemies';
 import { removeEntity, type Entities, type Entity, type EntityContext } from './entity';
+
+// Снаряд помнит, в какого врага его выпустили, — чтобы не стрелять во врага,
+// которого уже добьют летящие в него снаряды (см. findTarget).
+export type Projectile = Entity & {
+  targetHandle: ColliderHandle;
+};
+
+export type Projectiles = Entities<Projectile>;
+
+// Цель выстрела: враг и handle его коллайдера (handle запоминаем в снаряде).
+export type Target = {
+  handle: ColliderHandle;
+  enemy: Enemy;
+};
 
 // Снаряд, вылетевший дальше этого расстояния от центра по X или Z, точно промахнулся — удаляем.
 const MAX_PROJECTILE_DISTANCE = ARENA_SIZE / 2 + 1;
@@ -17,19 +39,35 @@ const getDistanceToCenterSquared = (entity: Entity): number => {
   return x * x + z * z;
 };
 
-// Ищет врага, ближайшего к игроку (к центру арены). undefined — врагов нет.
-// reduce проходит по всем врагам и оставляет того, кто ближе, чем лучший найденный до него.
-export const findNearestEnemy = (enemies: Entities): Entity | undefined =>
-  [...enemies.values()].reduce<Entity | undefined>(
-    (nearest, enemy) =>
-      !nearest || getDistanceToCenterSquared(enemy) < getDistanceToCenterSquared(nearest) ? enemy : nearest,
-    undefined,
-  );
+// Урон, который уже летит во врага: сколько выпущенных в него снарядов ещё в воздухе, × урон снаряда.
+const getIncomingDamage = (projectiles: Projectiles, enemyHandle: ColliderHandle): number =>
+  [...projectiles.values()].filter(({ targetHandle }) => targetHandle === enemyHandle).length * PROJECTILE_DAMAGE;
+
+// Выбирает цель: ближайшего к игроку врага из тех, кого летящие снаряды ещё не добьют.
+// Без этой проверки куб тратил бы снаряды впустую: снаряд летит до врага больше полсекунды,
+// и пока добивающий снаряд в пути, куб успевает выпустить в того же врага ещё 2–3 лишних.
+// undefined — стрелять не в кого: врагов нет или все уже «получат своё».
+export const findTarget = ({ enemies, projectiles }: { enemies: Enemies; projectiles: Projectiles }): Target | undefined =>
+  [...enemies]
+    .filter(([handle, enemy]) => enemy.hp > getIncomingDamage(projectiles, handle))
+    .map(([handle, enemy]) => ({ handle, enemy }))
+    .reduce<Target | undefined>(
+      (nearest, target) =>
+        !nearest || getDistanceToCenterSquared(target.enemy) < getDistanceToCenterSquared(nearest.enemy)
+          ? target
+          : nearest,
+      undefined,
+    );
 
 // Выпускает снаряд из центра игрока в сторону текущей позиции цели.
 // Упреждения нет: враги идут прямо на игрока, то есть навстречу снаряду, и он и так попадает.
-export const fireProjectile = ({ world, scene, entities, target }: EntityContext & { target: Entity }): void => {
-  const { x, z } = target.body.translation();
+export const fireProjectile = ({
+  world,
+  scene,
+  entities,
+  target,
+}: EntityContext<Projectile> & { target: Target }): void => {
+  const { x, z } = target.enemy.body.translation();
   const distance = Math.hypot(x, z);
 
   if (distance === 0) {
@@ -57,11 +95,11 @@ export const fireProjectile = ({ world, scene, entities, target }: EntityContext
   const mesh = new THREE.Mesh(PROJECTILE_GEOMETRY, PROJECTILE_MATERIAL);
   mesh.position.copy(body.translation());
   scene.add(mesh);
-  entities.set(collider.handle, { body, mesh });
+  entities.set(collider.handle, { body, mesh, targetHandle: target.handle });
 };
 
 // Удаляет снаряды, улетевшие за пределы арены, — иначе промахи копились бы бесконечно.
-export const removeFarProjectiles = ({ world, scene, entities }: EntityContext): void => {
+export const removeFarProjectiles = ({ world, scene, entities }: EntityContext<Projectile>): void => {
   for (const [handle, { body }] of entities) {
     const { x, z } = body.translation();
     const isFar = Math.abs(x) > MAX_PROJECTILE_DISTANCE || Math.abs(z) > MAX_PROJECTILE_DISTANCE;

@@ -23,8 +23,10 @@ export const DEFAULT_CLUSTER_RADIUS = 1.5;
 
 export const PLAYER_SIZE = 1;
 
-// Пауза между выстрелами: 1 секунда — один выстрел в секунду.
-export const FIRE_INTERVAL = 1;
+// Пауза между выстрелами: 0.15 секунды — почти семь выстрелов в секунду.
+// Врагу нужно ENEMY_MAX_HP / PROJECTILE_DAMAGE = 5 попаданий, так что куб убивает врага за ~0.75 с.
+// На этот темп рассчитаны волны в src/waves.ts.
+export const FIRE_INTERVAL = 0.15;
 
 // ─── ВРАГИ ───────────────────────────────────────────────────────────────────
 
@@ -33,10 +35,26 @@ export const ENEMY_SIZE = 0.8;
 // Враг проходит SPAWN_RADIUS = 11 м до игрока примерно за 5.5 секунды.
 export const ENEMY_SPEED = 2;
 
+// Здоровье врага при появлении. Дошло до нуля — враг погибает.
+export const ENEMY_MAX_HP = 50;
+
 // ─── СНАРЯДЫ ─────────────────────────────────────────────────────────────────
 
 export const PROJECTILE_SIZE = 0.25;
 export const PROJECTILE_SPEED = 15;
+
+// Сколько здоровья отнимает одно попадание.
+export const PROJECTILE_DAMAGE = 10;
+
+// ─── ПОЛОСКА ЗДОРОВЬЯ ────────────────────────────────────────────────────────
+
+// Размеры полоски над врагом в метрах: длина, толщина и зазор между верхом врага и полоской.
+export const HP_BAR_WIDTH = 1;
+export const HP_BAR_HEIGHT = 0.14;
+export const HP_BAR_GAP = 0.55;
+
+// Толщина тёмной рамки вокруг полоски.
+export const HP_BAR_BORDER = 0.04;
 
 // ─── ЦВЕТА ───────────────────────────────────────────────────────────────────
 
@@ -45,3 +63,5 @@ export const FLOOR_COLOR = '#3a3a42';
 export const PLAYER_COLOR = '#3b82f6';
 export const ENEMY_COLOR = '#ef4444';
 export const PROJECTILE_COLOR = '#facc15';
+export const HP_BAR_FILL_COLOR = '#22c55e';
+export const HP_BAR_BACKGROUND_COLOR = '#111114';

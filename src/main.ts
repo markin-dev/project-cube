@@ -3,13 +3,13 @@
 // Какие волны идут и как враги в них появляются — в waves.ts, patterns.ts и schedule.ts.
 import type { ColliderHandle } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import { FIRE_INTERVAL } from './config';
-import { moveEnemies, spawnEnemy } from './enemies';
-import { removeAllEntities, removeEntity, syncMeshes, type Entities } from './entity';
+import { FIRE_INTERVAL, PROJECTILE_DAMAGE } from './config';
+import { damageEnemy, moveEnemies, spawnEnemy, turnHpBarsToCamera, type Enemies } from './enemies';
+import { removeAllEntities, removeEntity, syncMeshes } from './entity';
 import { createHud } from './hud';
 import { createPhysics } from './physics';
 import { createPlayer } from './player';
-import { findNearestEnemy, fireProjectile, removeFarProjectiles } from './projectiles';
+import { findTarget, fireProjectile, removeFarProjectiles, type Projectiles } from './projectiles';
 import { createScene } from './scene';
 import { buildWaveSchedule, type SpawnEvent } from './schedule';
 import { WAVES } from './waves';
@@ -37,8 +37,8 @@ const hud = createHud();
 const playerHandle = createPlayer({ world, scene });
 
 // Живые враги и летящие снаряды. Ключ — handle коллайдера (см. entity.ts).
-const enemies: Entities = new Map();
-const projectiles: Entities = new Map();
+const enemies: Enemies = new Map();
+const projectiles: Projectiles = new Map();
 
 // ─── СОСТОЯНИЕ ИГРЫ ──────────────────────────────────────────────────────────
 
@@ -140,8 +140,8 @@ const advanceWave = (): void => {
 
 // ─── СТРЕЛЬБА И СТОЛКНОВЕНИЯ ─────────────────────────────────────────────────
 
-// Раз в FIRE_INTERVAL секунд стреляем в ближайшего врага.
-// Если врагов нет, отсчёт остаётся на нуле, и выстрел случится сразу, как только враг появится.
+// Раз в FIRE_INTERVAL секунд стреляем в ближайшего врага, которого летящие снаряды ещё не добьют.
+// Если стрелять не в кого, отсчёт остаётся на нуле, и выстрел случится сразу, как только цель появится.
 const shoot = (delta: number): void => {
   state.fireTimer -= delta;
 
@@ -149,7 +149,7 @@ const shoot = (delta: number): void => {
     return;
   }
 
-  const target = findNearestEnemy(enemies);
+  const target = findTarget({ enemies, projectiles });
 
   if (!target) {
     return;
@@ -161,8 +161,8 @@ const shoot = (delta: number): void => {
 
 // Разбираем столкновения, которые Rapier нашёл за последний шаг.
 // События приходят парами handle-ов коллайдеров в произвольном порядке, а нас интересуют две пары:
-// «враг + снаряд» — оба исчезают; «враг + игрок» — поражение. Остальные (снаряд внутри игрока
-// сразу после выстрела и т. п.) пропускаем.
+// «враг + снаряд» — снаряд исчезает, враг теряет здоровье и погибает, когда оно кончилось;
+// «враг + игрок» — поражение. Остальные (снаряд внутри игрока сразу после выстрела и т. п.) пропускаем.
 const handleCollisions = (): void => {
   // Удалять тела прямо во время обхода событий нельзя — Rapier ещё читает их данные.
   // Поэтому сначала собираем, кого удалить, а удаляем после.
@@ -177,8 +177,9 @@ const handleCollisions = (): void => {
 
     // Ставим врага первым, чтобы дальше не проверять оба порядка.
     const [enemyHandle, otherHandle] = enemies.has(handle1) ? [handle1, handle2] : [handle2, handle1];
+    const enemy = enemies.get(enemyHandle);
 
-    if (!enemies.has(enemyHandle)) {
+    if (!enemy) {
       return;
     }
 
@@ -188,13 +189,20 @@ const handleCollisions = (): void => {
       return;
     }
 
-    // Один снаряд убивает одного врага, а уже убитого врага второй снаряд пролетает насквозь.
+    // Один снаряд ранит одного врага и исчезает. Через уже погибшего врага
+    // (он ещё не удалён до конца этого шага) следующий снаряд пролетает насквозь.
     const isHit =
       projectiles.has(otherHandle) && !usedProjectiles.has(otherHandle) && !deadEnemies.has(enemyHandle);
 
-    if (isHit) {
+    if (!isHit) {
+      return;
+    }
+
+    usedProjectiles.add(otherHandle);
+    damageEnemy(enemy, PROJECTILE_DAMAGE);
+
+    if (enemy.hp <= 0) {
       deadEnemies.add(enemyHandle);
-      usedProjectiles.add(otherHandle);
     }
   });
 
@@ -284,5 +292,6 @@ renderer.setAnimationLoop((time: number): void => {
 
   syncMeshes(enemies);
   syncMeshes(projectiles);
+  turnHpBarsToCamera(enemies, camera);
   renderer.render(scene, camera);
 });
