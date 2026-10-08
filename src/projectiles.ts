@@ -39,27 +39,24 @@ const getIncomingDamage = (projectiles: Projectiles, enemyHandle: ColliderHandle
   return incomingCount * config.PROJECTILE_DAMAGE;
 };
 
-// Выбирает цель: ближайшего к игроку врага из тех, кого летящие снаряды ещё не добьют.
+// Выбирает до count целей: ближайших к игроку врагов из тех, кого летящие снаряды ещё не добьют.
 // Без этой проверки куб тратил бы снаряды впустую: снаряд летит до врага больше полсекунды,
-// и пока добивающий снаряд в пути, куб успевает выпустить в того же врага ещё 2–3 лишних.
-// undefined — стрелять не в кого: врагов нет или все уже «получат своё».
-export const findTarget = ({
+// и пока добивающий снаряд в пути, куб успел бы выпустить в того же врага ещё 2–3 лишних.
+// Пустой список — стрелять не в кого: врагов нет или все уже «получат своё».
+export const findTargets = ({
   enemies,
   projectiles,
+  count,
 }: {
   enemies: Enemies;
   projectiles: Projectiles;
-}): Target | undefined =>
+  count: number;
+}): Target[] =>
   [...enemies]
     .filter(([handle, enemy]) => enemy.hp > getIncomingDamage(projectiles, handle))
     .map(([handle, enemy]) => ({ handle, enemy }))
-    .reduce<Target | undefined>(
-      (nearest, target) =>
-        !nearest || getDistanceToCenterSquared(target.enemy) < getDistanceToCenterSquared(nearest.enemy)
-          ? target
-          : nearest,
-      undefined,
-    );
+    .sort((first, second) => getDistanceToCenterSquared(first.enemy) - getDistanceToCenterSquared(second.enemy))
+    .slice(0, count);
 
 // ─── ПРИЦЕЛ ──────────────────────────────────────────────────────────────────
 
@@ -128,9 +125,9 @@ const getAimPoint = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vector3 => {
 
 // ─── ВЫСТРЕЛ ─────────────────────────────────────────────────────────────────
 
-// Выпускает пулю из центра куба-игрока в точку прицела (getAimPoint) — по прямой, в любую сторону,
-// хоть вверх, если враг подлетел.
-export const fireProjectile = ({
+// Выпускает один снаряд из центра куба-игрока в точку прицела (getAimPoint) — по прямой,
+// в любую сторону, хоть вверх, если враг подлетел. Точка прицела своя у каждого снаряда.
+const fireOneProjectile = ({
   world,
   scene,
   entities,
@@ -176,6 +173,21 @@ export const fireProjectile = ({
   mesh.position.copy(body.translation());
   scene.add(mesh);
   entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle });
+};
+
+// Выпускает залп: по одному снаряду на каждую цель из targets (см. findTargets) — снаряды летят
+// в РАЗНЫХ врагов. Целей меньше, чем config.PROJECTILE_COUNT, — залп состоит ровно из стольких
+// снарядов, сколько целей: по одному на каждого противника, в пустоту не стреляем.
+// Каждый снаряд целится в свою случайную точку прицела своего врага (см. getAimPoint).
+export const fireProjectiles = ({
+  world,
+  scene,
+  entities,
+  targets,
+}: EntityContext<Projectile> & { targets: Target[] }): void => {
+  for (const target of targets) {
+    fireOneProjectile({ world, scene, entities, target });
+  }
 };
 
 // Удаляет промахнувшиеся пули — иначе они копились бы бесконечно, а куб считал бы их «летящими в цель»

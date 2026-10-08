@@ -28,8 +28,8 @@ import { createHud } from './hud';
 import { createPhysics } from './physics';
 import { createPlayer, refreshPlayerColor } from './player';
 import {
-  findTarget,
-  fireProjectile,
+  findTargets,
+  fireProjectiles,
   refreshProjectileColor,
   removeFarProjectiles,
   type Projectiles,
@@ -311,7 +311,8 @@ const advanceWave = (): void => {
 
 // ─── СТРЕЛЬБА И СТОЛКНОВЕНИЯ ─────────────────────────────────────────────────
 
-// Раз в config.FIRE_INTERVAL секунд стреляем в ближайшего врага, которого летящие снаряды ещё не добьют.
+// Раз в config.FIRE_INTERVAL секунд выпускаем залп: до config.PROJECTILE_COUNT снарядов — по одному
+// на разных ближайших врагов, которых летящие снаряды ещё не добьют (см. findTargets в projectiles.ts).
 // Если стрелять не в кого, отсчёт остаётся на нуле, и выстрел случится сразу, как только цель появится.
 const shoot = (delta: number): void => {
   state.fireTimer -= delta;
@@ -320,13 +321,18 @@ const shoot = (delta: number): void => {
     return;
   }
 
-  const target = findTarget({ enemies, projectiles });
+  const targets = findTargets({
+    enemies,
+    projectiles,
+    count: config.PROJECTILE_COUNT,
+  });
 
-  if (!target) {
+  if (targets.length === 0) {
     return;
   }
 
-  fireProjectile({ world, scene, entities: projectiles, target });
+  // Залп — и один звук выстрела на весь залп.
+  fireProjectiles({ world, scene, entities: projectiles, targets });
   sound.playShot();
   state.fireTimer = config.FIRE_INTERVAL;
 };
