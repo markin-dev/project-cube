@@ -127,6 +127,19 @@ const SECTIONS: Section[] = [
       { key: 'DAMAGE_NUMBER_FONT_SIZE', label: 'Размер шрифта, px', min: 8, max: 48, step: 1 },
     ],
   },
+  {
+    title: 'Искры',
+    settings: [
+      { key: 'SPARKS_COUNT', label: 'Искр на попадание', min: 0, max: 30, step: 1 },
+      { key: 'SPARKS_LIFETIME', label: 'Время жизни, с', min: 0.05, max: 3, step: 0.05 },
+      { key: 'SPARKS_SPEED', label: 'Скорость разлёта, м/с', min: 0, max: 30, step: 0.5 },
+      { key: 'SPARKS_SPEED_SPREAD', label: 'Разброс скорости', min: 0, max: 1, step: 0.05 },
+      { key: 'SPARKS_SIZE', label: 'Размер, м', min: 0.01, max: 0.5, step: 0.01 },
+      { key: 'SPARKS_SHRINK', label: 'Сжимается к концу', min: 0, max: 1, step: 0.05 },
+      { key: 'SPARKS_GRAVITY_SCALE', label: 'Гравитация (доля)', min: 0, max: 2, step: 0.05 },
+      { key: 'SPARKS_DAMPING', label: 'Затухание скорости', min: 0, max: 10, step: 0.1 },
+    ],
+  },
 ];
 
 const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
@@ -137,6 +150,7 @@ const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
   { key: 'HP_BAR_FILL_COLOR', label: 'Полоска здоровья' },
   { key: 'HP_BAR_BACKGROUND_COLOR', label: 'Подложка полоски' },
   { key: 'DAMAGE_NUMBER_COLOR', label: 'Цифры урона' },
+  { key: 'SPARKS_COLOR', label: 'Искры' },
   { key: 'CORPSE_COLOR', label: 'Призраки' },
   { key: 'DEATH_WALL_COLOR', label: 'Граница арены' },
 ];

@@ -38,6 +38,7 @@ import { buildWaveSchedule, type GroupSchedule } from './schedule';
 import { createSettingsPanel } from './settings-panel';
 import { createSpawnPlacer } from './spawn-placement';
 import { createSpeedSwitch } from './speed-switch';
+import { createSparks } from './sparks';
 import { WAVES } from './waves';
 
 // Сколько реального времени кадра учитываем максимум, с. После лага или возвращения на вкладку кадр
@@ -67,6 +68,9 @@ const hud = createHud();
 const showDamageNumber = createDamageNumbers();
 const playerHandle = createPlayer({ world, scene });
 
+// Искры при попадании: пул частиц в 3D-сцене (см. sparks.ts).
+const sparks = createSparks({ scene });
+
 // Применяет изменения из панели настроек, которые игра сама не подхватит: общие материалы перекрашиваем,
 // гравитацию задаём миру. Всё остальное код и так читает из config в момент использования.
 const applyLiveConfig = (): void => {
@@ -76,6 +80,7 @@ const applyLiveConfig = (): void => {
   refreshProjectileColor();
   refreshHpBarColors();
   refreshCorpseLook();
+  sparks.refreshColor();
   world.gravity = { x: 0, y: -config.GRAVITY, z: 0 };
 };
 
@@ -300,20 +305,28 @@ type Hit = {
 };
 
 // Применяет одно попадание. Толчок врагу уже передала физика в этом шаге, когда пуля в него врезалась, —
-// здесь только игровая логика: пуля исчезает, враг получает урон, а если здоровье кончилось,
-// становится призраком (и летит дальше с тем импульсом, что дала ему последняя пуля).
+// здесь только игровая логика: искры в точке удара, пуля исчезает, враг получает урон, а если здоровье
+// кончилось, становится призраком (и летит дальше с тем импульсом, что дала ему последняя пуля).
 // Пулю удаляем при любом касании: после удара она почти остановилась и иначе зависла бы в воздухе.
 // Если пуля в этом же шаге задела двоих, урон получает только первый.
 const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
-  if (!projectiles.has(projectileHandle)) {
+  const projectile = projectiles.get(projectileHandle);
+
+  // Пуля уже удалена — её попадание мы уже обработали в этом же шаге.
+  if (!projectile) {
     return;
   }
 
-  removeEntity({ world, scene, entities: projectiles, handle: projectileHandle });
-
   const enemy = enemies.get(enemyHandle);
 
-  // Враг уже погиб от предыдущей пули в этом же шаге.
+  // Искры — до удаления пули: её центр в момент столкновения и есть точка удара. Если врага
+  // в списке уже нет, sparks.spawn поднимет искры на поверхность призрака сам (или возьмёт
+  // точку пули).
+  sparks.spawn({ projectilePosition: projectile.body.translation(), enemy });
+
+  removeEntity({ world, scene, entities: projectiles, handle: projectileHandle });
+
+  // Враг уже погиб от предыдущей пули в этом же шаге — пуля задела его второй раз.
   if (!enemy) {
     return;
   }
@@ -386,6 +399,9 @@ const updateGame = (delta: number): void => {
   removeFallenEntities({ world, scene, entities: corpses });
   updateCorpses({ world, scene, entities: corpses, delta });
   removeFarProjectiles({ world, scene, entities: projectiles });
+
+  // Искры живут в игровом времени: на паузе замирают, при ускорении — летят быстрее.
+  sparks.update(delta);
   advanceWave();
 };
 
@@ -397,6 +413,7 @@ const startGame = (): void => {
   removeAllEntities({ world, scene, entities: enemies });
   removeAllEntities({ world, scene, entities: projectiles });
   removeAllEntities({ world, scene, entities: corpses });
+  sparks.clear();
   state.fireTimer = 0;
   state.status = 'playing';
   hud.hideEndScreen();
