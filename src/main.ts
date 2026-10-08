@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { config } from './config';
 import { refreshCorpseLook, turnOutOfArenaIntoCorpses, turnIntoCorpse, updateCorpses, type Corpses } from './corpses';
 import { createDamageNumbers } from './damage-numbers';
+import { createFpsCounter } from './fps-counter';
 import {
   damageEnemy,
   moveEnemies,
@@ -139,6 +140,9 @@ const speedSwitch = createSpeedSwitch({
     state.timeScale = speed;
   },
 });
+
+// Счётчик FPS в правом нижнем углу (fps-counter.ts).
+const fpsCounter = createFpsCounter();
 
 // Проверка «событие произошло на панели настроек или переключателе скорости?» — такие клики
 // и нажатия не должны перезапускать игру.
@@ -461,8 +465,14 @@ renderer.setAnimationLoop((time: number): void => {
   timer.update(time);
 
   // Все отсчёты и физика идут по времени кадра, поэтому скорость игры не зависит от частоты монитора.
+  // Реальное время кадра берём без ограничения MAX_FRAME_TIME — оно нужно только счётчику FPS:
+  // лаг или возврат на вкладку должны быть видны как просадка, а не замаскированы ограничителем.
+  const realDelta = timer.getDelta();
+
+  fpsCounter.tick(realDelta);
+
   // Игровое время кадра — реальное, умноженное на выбранную скорость (0 — пауза).
-  const gameTime = Math.min(timer.getDelta(), MAX_FRAME_TIME) * state.timeScale;
+  const gameTime = Math.min(realDelta, MAX_FRAME_TIME) * state.timeScale;
 
   // На ускорении игровое время кадра длиннее допустимого шага физики — делим его на несколько равных
   // шагов не длиннее MAX_TIMESTEP и на каждом целиком обновляем игру. Так попадания и физика работают
