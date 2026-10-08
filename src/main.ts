@@ -93,10 +93,12 @@ const applyLiveConfig = (): void => {
 };
 
 // Панель настроек. onStartWave — ручной запуск волны из раздела «Волны (отладка)»: ссылку берём
-// через стрелку, саму функцию startGame панель вызовет уже после её объявления.
+// через стрелку, саму функцию startGame панель вызовет уже после её объявления. sound — раздел
+// «Звук»: выбор наборов для каждого типа звука.
 const settingsPanel = createSettingsPanel({
   onChange: applyLiveConfig,
   onStartWave: (waveIndex: number): void => startGame(waveIndex),
+  sound,
 });
 
 // Живые враги, летящие снаряды и призраки погибших врагов. Ключ — handle коллайдера (см. entity.ts).
@@ -325,6 +327,7 @@ const shoot = (delta: number): void => {
   }
 
   fireProjectile({ world, scene, entities: projectiles, target });
+  sound.playShot();
   state.fireTimer = config.FIRE_INTERVAL;
 };
 
@@ -378,6 +381,9 @@ const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
 
   if (enemy.hp <= 0) {
     turnIntoCorpse({ world, enemies, corpses, handle: enemyHandle });
+
+    // Звук смерти — сразу за звуком попадания: пуля добила врага.
+    sound.playDeath();
   }
 };
 
@@ -438,7 +444,17 @@ const updateGame = (delta: number): void => {
 
   // Враг, пересёкший край арены, сразу погибает и летит дальше призраком.
   // Призраки, улетевшие слишком глубоко, удаляются — дальше они падали бы вечно.
+  // Звук смерти — если кто-то в этом кадре погиб: засчитываем любых, кого функция превратила
+  // в призраков (покинувшие арену, улетевшие выше потолка смерти, сорвавшиеся с края).
+  // Массовая гибель — один звук на кадр, поток сдерживает пауза MIN_GAP_MS в sound.ts.
+  const corpsesBefore = corpses.size;
+
   turnOutOfArenaIntoCorpses({ world, enemies, corpses });
+
+  if (corpses.size > corpsesBefore) {
+    sound.playDeath();
+  }
+
   removeFallenEntities({ world, scene, entities: corpses });
   updateCorpses({ world, scene, entities: corpses, delta });
   removeFarProjectiles({ world, scene, entities: projectiles });

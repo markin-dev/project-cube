@@ -21,6 +21,7 @@ import {
   saveChanges,
 } from './config-storage';
 import { ENEMY_KIND_NAMES } from './enemies';
+import { SOUND_SETS, type Sound, type SoundType } from './sound';
 import { WAVES } from './waves';
 
 type ApplyMode = 'now' | 'newEnemies' | 'nextWave' | 'reload';
@@ -32,10 +33,12 @@ const APPLY_SUFFIXES: Record<ApplyMode, string> = {
   reload: ' · перезагрузка',
 };
 
-// Имена числовых полей конфига и имена строковых (у нас это все цвета). Тип «отфильтрованных ключей»:
-// для каждого поля оставляем его имя, если значение — число (строка), иначе never, и собираем объединение.
+// Имена числовых полей конфига, имена строковых (у нас это все цвета) и имена булевых
+// (у нас это муты типов звука). Тип «отфильтрованных ключей»: для каждого поля оставляем его имя,
+// если значение — число (строка, boolean), иначе never, и собираем объединение.
 type NumberKey = { [Key in keyof Config]: Config[Key] extends number ? Key : never }[keyof Config];
 type ColorKey = { [Key in keyof Config]: Config[Key] extends string ? Key : never }[keyof Config];
+type BooleanKey = { [Key in keyof Config]: Config[Key] extends boolean ? Key : never }[keyof Config];
 
 // Описание числового параметра для панели: подпись, допустимый диапазон, шаг ползунка и когда применяется.
 type NumberSetting = {
@@ -144,10 +147,6 @@ const SECTIONS: Section[] = [
       { key: 'SPARKS_DAMPING', label: 'Затухание скорости', min: 0, max: 10, step: 0.1 },
     ],
   },
-  {
-    title: 'Звук',
-    settings: [{ key: 'SOUND_VOLUME', label: 'Громкость', min: 0, max: 1, step: 0.05 }],
-  },
 ];
 
 const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
@@ -254,15 +253,54 @@ const addWavePicker = (gui: GUI, onStartWave: (waveIndex: number) => void): ((wa
   };
 };
 
+// Описание типа звука для раздела «Звук»: подпись папки и куда писать его громкость и мут в конфиге.
+const SOUND_TYPE_SETTINGS: Array<{ type: SoundType; title: string; volumeKey: NumberKey; mutedKey: BooleanKey }> = [
+  { type: 'hit', title: 'Попадание', volumeKey: 'HIT_VOLUME', mutedKey: 'HIT_MUTED' },
+  { type: 'shot', title: 'Выстрел', volumeKey: 'SHOT_VOLUME', mutedKey: 'SHOT_MUTED' },
+  { type: 'death', title: 'Смерть', volumeKey: 'DEATH_VOLUME', mutedKey: 'DEATH_MUTED' },
+];
+
+// Раздел «Звук»: общая громкость и на каждый тип — своя папка с тремя настройками:
+// громкостью, чекбоксом «Выключить звук» (свой мут) и выбором набора звучания.
+// Наборы — не параметры конфига, а состояние sound.ts (своя запись в localStorage), поэтому селект
+// собирается вручную — так же, как и выбор волны в addWavePicker: он не считается в «изменено: N».
+const addSoundSection = (gui: GUI, sound: Sound): void => {
+  const folder = gui.addFolder('Звук');
+
+  folder.add(config, 'SOUND_VOLUME', 0, 1, 0.05).name('Громкость (общая)');
+
+  for (const { type, title, volumeKey, mutedKey } of SOUND_TYPE_SETTINGS) {
+    const typeFolder = folder.addFolder(title);
+
+    typeFolder.add(config, volumeKey, 0, 1, 0.05).name('Громкость');
+
+    // Варианты селекта: подпись — название набора, значение — его id (см. SOUND_SETS в sound.ts).
+    const picked = { set: sound.getSetId(type) };
+    const options: Record<string, string> = {};
+
+    for (const { id, title: setTitle } of SOUND_SETS[type]) {
+      options[setTitle] = id;
+    }
+
+    const setController = typeFolder.add(picked, 'set', options).name('Набор');
+    setController.onChange((): void => sound.setSetId(type, picked.set));
+
+    typeFolder.add(config, mutedKey).name('Выключить звук');
+  }
+};
+
 // Создаёт панель в правом верхнем углу. Свёрнута: видна только шапка, по клику раскрывается.
 // onChange вызывается при каждом изменении — там игра применяет то, что не читается само (цвета, гравитация).
 // onStartWave(index) — запустить волну с индексом index вручную (отладка, см. addWavePicker).
+// sound — звук игры: раздел «Звук» читает и меняет его наборы (см. addSoundSection).
 export const createSettingsPanel = ({
   onChange,
   onStartWave,
+  sound,
 }: {
   onChange: () => void;
   onStartWave: (waveIndex: number) => void;
+  sound: Sound;
 }): SettingsPanel => {
   // closeFolders — все разделы изначально свёрнуты, чтобы панель не занимала пол-экрана.
   // На узком экране (телефон) панель уже — чтобы между ней и краем оставался зазор.
@@ -294,6 +332,9 @@ export const createSettingsPanel = ({
       addEnemyKinds(folder.addFolder('Типы врагов'));
     }
   }
+
+  // Раздел «Звук» — не из SECTIONS: к числам и чекбоксам добавлены селекты наборов (см. выше).
+  addSoundSection(gui, sound);
 
   const colorsFolder = gui.addFolder('Цвета');
 
