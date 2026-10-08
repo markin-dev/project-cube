@@ -215,21 +215,39 @@ const spawnScheduledEnemies = (delta: number): void => {
     return;
   }
 
+  // Лимит появлений за шаг (SPAWN_PER_FRAME): огромная группа не выходит разом, а порциями несколько
+  // шагов подряд. Место для каждого нового врага ищется по уже вставшей толпе, проверок тем больше,
+  // чем длиннее очередь, — без лимита такой шаг проваливается на секунды. С лимитом волна появляется
+  // за доли секунды, что на глаз неотличимо от мгновенного появления, а кадр держится.
+  // Невыпущенные события ждут следующего шага: spawnedCount не двигается, порядок и условия
+  // появления не меняются, только скорость выдачи. 0 — без лимита.
+  const budget = config.SPAWN_PER_FRAME > 0 ? Math.max(1, Math.floor(config.SPAWN_PER_FRAME)) : Infinity;
+
   // Точку из расписания сдвигаем к свободному месту, если там уже кто-то стоит, — рядом на полу или,
   // если на полу тесно, ярусом выше (см. spawn-placement.ts). Подборщик мест строится один раз на шаг
   // и сам учитывает врагов, которые появляются в этом же шаге.
   const placeEnemy = createSpawnPlacer(enemies);
+  let remaining = budget;
 
   for (const [index, group] of state.groups.entries()) {
     const dueEvents = dueByGroup[index];
 
-    for (const event of dueEvents) {
+    // Бюджет исчерпан — остальные группы (и остаток этой) появятся в следующем шаге.
+    if (remaining <= 0) {
+      break;
+    }
+
+    const spawnCount = Math.min(dueEvents.length, remaining);
+
+    for (let eventIndex = 0; eventIndex < spawnCount; eventIndex++) {
+      const event = dueEvents[eventIndex];
       const position = placeEnemy({ point: event, size: config.ENEMY_KINDS[event.kindName].size });
 
       spawnEnemy({ world, scene, entities: enemies, position, kindName: event.kindName });
     }
 
-    group.spawnedCount += dueEvents.length;
+    group.spawnedCount += spawnCount;
+    remaining -= spawnCount;
   }
 };
 
