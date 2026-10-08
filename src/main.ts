@@ -37,6 +37,8 @@ import {
 import { createScene, refreshSceneLook } from './scene';
 import { buildWaveSchedule, type GroupSchedule } from './schedule';
 import { createSettingsPanel } from './settings-panel';
+import { createSound } from './sound';
+import { createSoundSwitch } from './sound-switch';
 import { createSpawnPlacer } from './spawn-placement';
 import { createSpeedSwitch } from './speed-switch';
 import { createSparks } from './sparks';
@@ -72,8 +74,12 @@ const playerHandle = createPlayer({ world, scene });
 // Искры при попадании: пул частиц в 3D-сцене (см. sparks.ts).
 const sparks = createSparks({ scene });
 
+// Звук: синтез через Web Audio, без ассетов (см. sound.ts). playHit звучит при попадании
+// снаряда в живого врага — в applyHit ниже.
+const sound = createSound();
+
 // Применяет изменения из панели настроек, которые игра сама не подхватит: общие материалы перекрашиваем,
-// гравитацию задаём миру. Всё остальное код и так читает из config в момент использования.
+// гравитацию задаём миру, громкость звука перечитываем. Всё остальное код и так читает из config в момент использования.
 const applyLiveConfig = (): void => {
   refreshSceneLook({ scene, deathWalls });
   refreshPlayerColor();
@@ -82,10 +88,16 @@ const applyLiveConfig = (): void => {
   refreshHpBarColors();
   refreshCorpseLook();
   sparks.refreshColor();
+  sound.applyVolume();
   world.gravity = { x: 0, y: -config.GRAVITY, z: 0 };
 };
 
-const settingsPanel = createSettingsPanel({ onChange: applyLiveConfig });
+// Панель настроек. onStartWave — ручной запуск волны из раздела «Волны (отладка)»: ссылку берём
+// через стрелку, саму функцию startGame панель вызовет уже после её объявления.
+const settingsPanel = createSettingsPanel({
+  onChange: applyLiveConfig,
+  onStartWave: (waveIndex: number): void => startGame(waveIndex),
+});
 
 // Живые враги, летящие снаряды и призраки погибших врагов. Ключ — handle коллайдера (см. entity.ts).
 const enemies: Enemies = new Map();
@@ -141,13 +153,16 @@ const speedSwitch = createSpeedSwitch({
   },
 });
 
+// Кнопка звука — в том же ряду, что и кнопки скорости, справа от них.
+const soundSwitch = createSoundSwitch({ container: speedSwitch.container, sound });
+
 // Счётчик FPS в правом нижнем углу (fps-counter.ts).
 const fpsCounter = createFpsCounter();
 
-// Проверка «событие произошло на панели настроек или переключателе скорости?» — такие клики
-// и нажатия не должны перезапускать игру.
+// Проверка «событие произошло на панели настроек, переключателе скорости или кнопке звука?» —
+// такие клики и нажатия не должны перезапускать игру.
 const isUiTarget = (target: EventTarget | null): boolean =>
-  settingsPanel.isPanelTarget(target) || speedSwitch.isSwitchTarget(target);
+  settingsPanel.isPanelTarget(target) || speedSwitch.isSwitchTarget(target) || soundSwitch.isSwitchTarget(target);
 
 // ─── ВОЛНЫ ───────────────────────────────────────────────────────────────────
 
@@ -159,6 +174,9 @@ const startWave = (waveIndex: number): void => {
   state.groups = buildWaveSchedule(wave).map((group) => ({ ...group, spawnedCount: 0 }));
   hud.setWave({ number: waveIndex + 1, total: WAVES.length, name: wave.name });
   hud.setGroup({ number: 0, total: state.groups.length });
+
+  // Селект «Волна» в панели показывает текущую волну.
+  settingsPanel.setCurrentWave(waveIndex);
 };
 
 // Проверка «группа уже началась и все её враги появились?».
@@ -327,8 +345,8 @@ type Hit = {
 };
 
 // Применяет одно попадание. Толчок врагу уже передала физика в этом шаге, когда пуля в него врезалась, —
-// здесь только игровая логика: искры в точке удара, пуля исчезает, враг получает урон, а если здоровье
-// кончилось, становится призраком (и летит дальше с тем импульсом, что дала ему последняя пуля).
+// здесь только игровая логика: искры в точке удара, пуля исчезает, враг получает урон (и звук попадания),
+// а если здоровье кончилось, становится призраком (и летит дальше с тем импульсом, что дала ему последняя пуля).
 // Пулю удаляем при любом касании: после удара она почти остановилась и иначе зависла бы в воздухе.
 // Если пуля в этом же шаге задела двоих, урон получает только первый.
 const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
@@ -354,6 +372,9 @@ const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
   }
 
   hitEnemy(enemy, config.PROJECTILE_DAMAGE);
+
+  // Звук попадания — только по живому врагу: по призраку урон не наносится, это не «попадание».
+  sound.playHit();
 
   if (enemy.hp <= 0) {
     turnIntoCorpse({ world, enemies, corpses, handle: enemyHandle });
@@ -430,8 +451,9 @@ const updateGame = (delta: number): void => {
 // ─── СТАРТ И РЕСТАРТ ─────────────────────────────────────────────────────────
 
 // Новая игра без перезагрузки страницы: убираем всех врагов, снаряды и призраков
-// и начинаем со стартовой волны.
-const startGame = (): void => {
+// и начинаем со стартовой волны. Свой индекс волны передаёт ручной запуск из панели настроек —
+// тогда игра начинается с выбранной волны (арена всё равно чистится, чтобы старт был предсказуем).
+const startGame = (waveIndex: number = START_WAVE_INDEX): void => {
   removeAllEntities({ world, scene, entities: enemies });
   removeAllEntities({ world, scene, entities: projectiles });
   removeAllEntities({ world, scene, entities: corpses });
@@ -439,7 +461,7 @@ const startGame = (): void => {
   state.fireTimer = 0;
   state.status = 'playing';
   hud.hideEndScreen();
-  startWave(START_WAVE_INDEX);
+  startWave(waveIndex);
 };
 
 const restartGame = (): void => {

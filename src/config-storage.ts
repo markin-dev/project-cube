@@ -39,6 +39,14 @@ export const readSavedChanges = (): Values => {
 
 export const saveChanges = (changes: Values): void => {
   try {
+    // Отличий нет — ключа в хранилище тоже не должно быть (иначе он появился бы, например, после
+    // запуска волны из панели: это действие, а не изменение конфига).
+    if (Object.keys(changes).length === 0) {
+      localStorage.removeItem(STORAGE_KEY);
+
+      return;
+    }
+
     localStorage.setItem(STORAGE_KEY, JSON.stringify(changes));
   } catch {
     // Сохранить не получилось (приватный режим, запрет) — изменения просто не переживут перезагрузку.

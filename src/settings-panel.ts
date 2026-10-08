@@ -8,6 +8,8 @@
 //   «· волна»       — со следующей волны (расписание волны строится при её старте);
 //   «· перезагрузка» — после перезагрузки страницы (пол, камера и игрок создаются один раз).
 // Изменения сохраняются в браузере (см. config-storage.ts) и переживают перезагрузку.
+// Кроме параметров конфига есть раздел «Волны (отладка)» — ручной запуск волны: это действие,
+// а не настройка, поэтому оно не сохраняется и в «изменено: N» не считается (см. addWavePicker).
 import GUI from 'lil-gui';
 import { config, DEFAULT_CONFIG, type Config, type EnemyKindName } from './config';
 import {
@@ -19,6 +21,7 @@ import {
   saveChanges,
 } from './config-storage';
 import { ENEMY_KIND_NAMES } from './enemies';
+import { WAVES } from './waves';
 
 type ApplyMode = 'now' | 'newEnemies' | 'nextWave' | 'reload';
 
@@ -56,7 +59,7 @@ const SECTIONS: Section[] = [
   {
     title: 'Арена и волны',
     settings: [
-      { key: 'ARENA_SIZE', label: 'Размер арены, м', min: 12, max: 60, step: 1, apply: 'reload' },
+      { key: 'ARENA_SIZE', label: 'Размер арены, м', min: 12, max: 600, step: 1, apply: 'reload' },
       { key: 'SPAWN_RADIUS', label: 'Радиус спавна, м', min: 3, max: 28, step: 0.5 },
       { key: 'DEATH_WALL_HEIGHT', label: 'Высота границы, м', min: 0, max: 10, step: 0.1 },
       { key: 'DEATH_WALL_OPACITY', label: 'Непрозрачность границы', min: 0, max: 1, step: 0.05 },
@@ -86,7 +89,7 @@ const SECTIONS: Section[] = [
     title: 'Враги',
     isWithEnemyKinds: true,
     settings: [
-      { key: 'ENEMY_SPEED', label: 'Скорость, м/с', min: 0, max: 8, step: 0.1 },
+      { key: 'ENEMY_SPEED', label: 'Скорость, м/с', min: -100, max: 8, step: 0.1 },
       { key: 'ENEMY_ACCELERATION', label: 'Ускорение, м/с²', min: 0, max: 40, step: 0.5 },
     ],
   },
@@ -141,6 +144,10 @@ const SECTIONS: Section[] = [
       { key: 'SPARKS_DAMPING', label: 'Затухание скорости', min: 0, max: 10, step: 0.1 },
     ],
   },
+  {
+    title: 'Звук',
+    settings: [{ key: 'SOUND_VOLUME', label: 'Громкость', min: 0, max: 1, step: 0.05 }],
+  },
 ];
 
 const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
@@ -186,6 +193,9 @@ const LEGEND = `
 export type SettingsPanel = {
   // Проверка «событие произошло внутри панели?» — чтобы клик по панели не перезапускал игру.
   isPanelTarget: (target: EventTarget | null) => boolean;
+
+  // Синхронизирует селект выбора волны с реально идущей волной (вызывается при старте каждой волны).
+  setCurrentWave: (waveIndex: number) => void;
 };
 
 // Пояснение про пометки — первым элементом внутри панели. $children — контейнер её содержимого.
@@ -209,9 +219,51 @@ const addEnemyKinds = (folder: GUI): void => {
   }
 };
 
+// Раздел «Волны (отладка)»: ручной выбор волны. Выбранная волна запускается сразу (startGame в main.ts):
+// арена чистится от врагов, снарядов и призраков, счётчики обнуляются. После этого волны идут как обычно,
+// до самой последней — то есть из выбранной волны игра продолжается дальше по списку.
+// Это действие, а не настройка: объект picked в конфиг не входит, поэтому не сохраняется в localStorage
+// и не считается в «изменено: N».
+// Возвращает функцию синхронизации: селект показывает текущую волну (вызывается из startWave в main.ts),
+// иначе после автоматического перехода на следующую волну в селекте осталась бы старая.
+const addWavePicker = (gui: GUI, onStartWave: (waveIndex: number) => void): ((waveIndex: number) => void) => {
+  const folder = gui.addFolder('Волны (отладка)');
+  const picked = { waveIndex: 0 };
+
+  // Варианты селекта: подпись «N · название», значение — индекс в WAVES.
+  const options: Record<string, number> = {};
+
+  WAVES.forEach((wave, index): void => {
+    options[`${index + 1} · ${wave.name}`] = index;
+  });
+
+  // Выбор волны запускает её сразу — иначе пришлось бы жать ещё и кнопку.
+  const waveController = folder.add(picked, 'waveIndex', options).name('Волна');
+  waveController.onChange((): void => onStartWave(picked.waveIndex));
+
+  // Кнопка — перезапуск уже выбранной волны: селект не подаёт события, если выбрали текущее значение.
+  const actions = {
+    restart: (): void => onStartWave(picked.waveIndex),
+  };
+
+  folder.add(actions, 'restart').name('Перезапустить волну');
+
+  return (waveIndex: number): void => {
+    picked.waveIndex = waveIndex;
+    waveController.updateDisplay();
+  };
+};
+
 // Создаёт панель в правом верхнем углу. Свёрнута: видна только шапка, по клику раскрывается.
 // onChange вызывается при каждом изменении — там игра применяет то, что не читается само (цвета, гравитация).
-export const createSettingsPanel = ({ onChange }: { onChange: () => void }): SettingsPanel => {
+// onStartWave(index) — запустить волну с индексом index вручную (отладка, см. addWavePicker).
+export const createSettingsPanel = ({
+  onChange,
+  onStartWave,
+}: {
+  onChange: () => void;
+  onStartWave: (waveIndex: number) => void;
+}): SettingsPanel => {
   // closeFolders — все разделы изначально свёрнуты, чтобы панель не занимала пол-экрана.
   // На узком экране (телефон) панель уже — чтобы между ней и краем оставался зазор.
   const gui = new GUI({ title: PANEL_TITLE, width: Math.min(PANEL_WIDTH, window.innerWidth - 32), closeFolders: true });
@@ -227,6 +279,9 @@ export const createSettingsPanel = ({ onChange }: { onChange: () => void }): Set
   }
 
   addLegend(gui);
+
+  // Сначала раздел отладки — он нужен чаще всего, чтобы не листать длинный список параметров.
+  const setCurrentWave = addWavePicker(gui, onStartWave);
 
   for (const { title, settings, isWithEnemyKinds } of SECTIONS) {
     const folder = gui.addFolder(title);
@@ -319,5 +374,6 @@ export const createSettingsPanel = ({ onChange }: { onChange: () => void }): Set
 
   return {
     isPanelTarget: (target: EventTarget | null): boolean => target instanceof Node && gui.domElement.contains(target),
+    setCurrentWave,
   };
 };

@@ -16,6 +16,10 @@ const getSpeedLabel = (speed: number): string => (speed === 0 ? '⏸' : `×${spe
 export type SpeedSwitch = {
   // Проверка «событие произошло на переключателе?» — чтобы клик по нему не перезапускал игру.
   isSwitchTarget: (target: EventTarget | null) => boolean;
+
+  // Ряд кнопок в левом нижнем углу. В этот же ряд main.ts ставит кнопку звука (sound-switch.ts):
+  // так оба контрола стоят рядом и вместе поднимаются над шапкой панели на узком экране.
+  container: HTMLDivElement;
 };
 
 // Выбранная кнопка — светлая, остальные — тёмные полупрозрачные.
@@ -30,12 +34,16 @@ export const createSpeedSwitch = ({ onChange }: { onChange: (speed: number) => v
   const container = document.createElement('div');
 
   // z-index: 2 — поверх экрана конца игры (у него 1): скорость можно переключить и после поражения.
+  // flex-wrap + max-width: в ряду ещё кнопки звука (sound-switch.ts) — на узком экране они
+  // переносятся на вторую строку, а не вылезают за правый край.
   container.style.cssText = `
     position: fixed;
     left: 16px;
     bottom: ${isNarrowScreen ? NARROW_SCREEN_BOTTOM_OFFSET : BOTTOM_OFFSET}px;
     z-index: 2;
     display: flex;
+    flex-wrap: wrap;
+    max-width: calc(100vw - 32px);
     gap: 4px;
     user-select: none;
   `;
@@ -77,5 +85,6 @@ export const createSpeedSwitch = ({ onChange }: { onChange: (speed: number) => v
 
   return {
     isSwitchTarget: (target: EventTarget | null): boolean => target instanceof Node && container.contains(target),
+    container,
   };
 };
