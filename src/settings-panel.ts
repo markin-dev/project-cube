@@ -96,6 +96,7 @@ const SECTIONS: Section[] = [
     settings: [
       { key: 'ENEMY_SPEED', label: 'Скорость, м/с', min: -100, max: 8, step: 0.1 },
       { key: 'ENEMY_ACCELERATION', label: 'Ускорение, м/с²', min: 0, max: 40, step: 0.5 },
+      { key: 'ENEMY_TANGENTIAL_DAMPING', label: 'Гашение боковой скорости, 1/с', min: 0, max: 5, step: 0.1 },
     ],
   },
   {

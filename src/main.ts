@@ -560,3 +560,13 @@ renderer.setAnimationLoop((time: number): void => {
   turnHpBarsToCamera(enemies, camera);
   renderer.render(scene, camera);
 });
+
+// ─── ТЕСТОВЫЙ ДОСТУП ─────────────────────────────────────────────────────────
+
+// __game — дверь для скриптов проверки (headless Chrome + CDP): тесты читают состояния тел
+// напрямую (позиции, скорости), вместо косвенных признаков в DOM, и могут задать телу скорость,
+// чтобы проверить поведение управления. import.meta.env.DEV на dev-сервере true, а в npm run build
+// vite статически подставляет false — вся ветка вырезается из прод-бандла.
+if (import.meta.env.DEV) {
+  (window as typeof window & { __game?: { enemies: Enemies } }).__game = { enemies };
+}

@@ -134,8 +134,16 @@ export const damageEnemy = (enemy: Enemy, damage: number): void => {
 };
 
 // Каждый кадр враги, стоящие на полу, разгоняются к центру арены, где стоит игрок.
-// Скорость не задаётся жёстко, а меняется не больше чем на config.ENEMY_ACCELERATION × delta за кадр:
-// иначе любой толчок от удара гасился бы в следующем же кадре. Враг в воздухе не управляется.
+// Скорость раскладывается на две ортогональные составляющие:
+//   радиальная — прямо к центру: подгоняется к config.ENEMY_SPEED не быстрее, чем позволяет
+//     config.ENEMY_ACCELERATION × delta;
+//   касательная — вдоль кольца вокруг центра (то, что задают удары пули и соседи): НЕ трогается,
+//     только мягко гасится экспоненциально с config.ENEMY_TANGENTIAL_DAMPING.
+// Так сделано специально отдельно: раньше обе составляющие загонялись в «чистый радиальный ход»
+// общим бюджетом ускорения — кольцо врагов теряло возможность скольжения друг мимо друга и
+// замыкалось в неподвижной стопке (расстрел такой кучи был расстрелом статуи).
+// Скорость не задаётся жёстко, а меняется постепенно — иначе любой толчок от удара гасился бы
+// в следующем же кадре. Враг в воздухе не управляется.
 export const moveEnemies = (enemies: Enemies, delta: number): void => {
   for (const enemy of enemies.values()) {
     const { body } = enemy;
@@ -148,18 +156,42 @@ export const moveEnemies = (enemies: Enemies, delta: number): void => {
       continue;
     }
 
-    // Желаемая скорость — к центру, (-x, -z), длиной config.ENEMY_SPEED. Разница с текущей скоростью по полу —
-    // сколько нужно добавить. Если это больше, чем разрешает ускорение, добавляем только часть.
     const velocity = body.linvel();
-    const changeX = (-position.x / distance) * config.ENEMY_SPEED - velocity.x;
-    const changeZ = (-position.z / distance) * config.ENEMY_SPEED - velocity.z;
-    const change = Math.hypot(changeX, changeZ);
-    const maxChange = config.ENEMY_ACCELERATION * delta;
-    const fraction = change > maxChange ? maxChange / change : 1;
 
-    // Вертикальную скорость не трогаем — ей управляет гравитация.
+    // Единичные векторы раскладки: радиальный — от врага к центру; касательный — поворот
+    // радиального на 90° ((x, z) → (−z, x)). Оба лежат в горизонтальной плоскости и ортогональны.
+    const radialX = -position.x / distance;
+    const radialZ = -position.z / distance;
+    const tangentialX = -radialZ;
+    const tangentialZ = radialX;
+
+    // Текущая горизонтальная скорость, разложенная по этим направлениям (скалярные произведения).
+    const radialSpeed = velocity.x * radialX + velocity.z * radialZ;
+    const tangentialSpeed = velocity.x * tangentialX + velocity.z * tangentialZ;
+
+    // Радиальная составляющая: сколько добавить, чтобы идти к центру с config.ENEMY_SPEED,
+    // но не больше, чем разрешает ускорение за кадр.
+    const radialChange = config.ENEMY_SPEED - radialSpeed;
+    const maxChange = config.ENEMY_ACCELERATION * delta;
+    const clampedRadialChange = Math.abs(radialChange) > maxChange ? Math.sign(radialChange) * maxChange : radialChange;
+    const newRadialSpeed = radialSpeed + clampedRadialChange;
+
+    // Касательная составляющая: показательное затухание — за секунду скорость теряет долю
+    // ENEMY_TANGENTIAL_DAMPING. Math.max(0, …) — при редком кадре (большой delta) множитель
+    // не должен уйти в минус и развернуть скорость вспять.
+    const newTangentialSpeed = tangentialSpeed * Math.max(0, 1 - config.ENEMY_TANGENTIAL_DAMPING * delta);
+
+    // Собираем горизонтальную скорость обратно из двух составляющих.
+    // Вертикальную не трогаем — ей управляет гравитация.
     // true «будит» тело: Rapier усыпляет неподвижные тела, и спящее не сдвинется даже со скоростью.
-    body.setLinvel({ x: velocity.x + changeX * fraction, y: velocity.y, z: velocity.z + changeZ * fraction }, true);
+    body.setLinvel(
+      {
+        x: radialX * newRadialSpeed + tangentialX * newTangentialSpeed,
+        y: velocity.y,
+        z: radialZ * newRadialSpeed + tangentialZ * newTangentialSpeed,
+      },
+      true,
+    );
   }
 };
 
