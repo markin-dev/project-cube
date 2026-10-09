@@ -91,6 +91,14 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    title: 'Криты',
+    settings: [
+      { key: 'CRIT_CHANCE', label: 'Шанс крита (0–1)', min: 0, max: 1, step: 0.05 },
+      { key: 'CRIT_MULTIPLIER', label: 'Множитель урона', min: 1, max: 10, step: 0.1 },
+      { key: 'CRIT_MASS_MULTIPLIER', label: 'Множитель массы пули', min: 1, max: 10, step: 0.1 },
+    ],
+  },
+  {
     title: 'Враги',
     isWithEnemyKinds: true,
     settings: [
@@ -135,6 +143,7 @@ const SECTIONS: Section[] = [
       { key: 'DAMAGE_NUMBER_RISE', label: 'Подъём, px', min: 0, max: 150, step: 1 },
       { key: 'DAMAGE_NUMBER_JITTER', label: 'Разброс вбок, px', min: 0, max: 60, step: 1 },
       { key: 'DAMAGE_NUMBER_FONT_SIZE', label: 'Размер шрифта, px', min: 8, max: 48, step: 1 },
+      { key: 'DAMAGE_NUMBER_CRIT_FONT_SCALE', label: 'Кегль крита (множитель)', min: 1, max: 5, step: 0.1 },
     ],
   },
   {
@@ -148,6 +157,9 @@ const SECTIONS: Section[] = [
       { key: 'SPARKS_SHRINK', label: 'Сжимается к концу', min: 0, max: 1, step: 0.05 },
       { key: 'SPARKS_GRAVITY_SCALE', label: 'Гравитация (доля)', min: 0, max: 2, step: 0.05 },
       { key: 'SPARKS_DAMPING', label: 'Затухание скорости', min: 0, max: 10, step: 0.1 },
+      { key: 'SPARKS_CRIT_COUNT_MULTIPLIER', label: 'Крит: множитель искр', min: 0, max: 10, step: 0.5 },
+      { key: 'SPARKS_CRIT_SIZE_MULTIPLIER', label: 'Крит: множитель размера', min: 0.5, max: 5, step: 0.1 },
+      { key: 'SPARKS_CRIT_SPEED_MULTIPLIER', label: 'Крит: множитель скорости', min: 0.5, max: 5, step: 0.1 },
     ],
   },
 ];
@@ -160,7 +172,9 @@ const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
   { key: 'HP_BAR_FILL_COLOR', label: 'Полоска здоровья' },
   { key: 'HP_BAR_BACKGROUND_COLOR', label: 'Подложка полоски' },
   { key: 'DAMAGE_NUMBER_COLOR', label: 'Цифры урона' },
+  { key: 'DAMAGE_NUMBER_CRIT_COLOR', label: 'Цифры урона (крит)' },
   { key: 'SPARKS_COLOR', label: 'Искры' },
+  { key: 'SPARKS_CRIT_COLOR', label: 'Искры (крит)' },
   { key: 'CORPSE_COLOR', label: 'Призраки' },
   { key: 'DEATH_WALL_COLOR', label: 'Граница арены' },
 ];

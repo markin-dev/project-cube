@@ -8,6 +8,12 @@ type DamageNumberParams = {
   // Точка в 3D-мире, над которой появится число.
   position: THREE.Vector3;
   damage: number;
+
+  // Критическое ли это попадание: крит-число показывается другим цветом (DAMAGE_NUMBER_CRIT_COLOR)
+  // и увеличенным кеглем (DAMAGE_NUMBER_CRIT_FONT_SCALE). Флаг запомнен в снаряде при выстреле
+  // (см. Projectile.isCrit) и донесён сюда из applyHit.
+  isCrit?: boolean;
+
   camera: THREE.Camera;
 };
 
@@ -28,7 +34,7 @@ export const createDamageNumbers = (): ShowDamageNumber => {
 
   document.body.append(layer);
 
-  return ({ position, damage, camera }: DamageNumberParams): void => {
+  return ({ position, damage, isCrit = false, camera }: DamageNumberParams): void => {
     // project переводит точку мира в координаты экрана камеры: от -1 до 1 по X (слева направо)
     // и по Y (снизу вверх). Пересчитываем их в пиксели окна, где Y растёт сверху вниз.
     // Canvas занимает всё окно, поэтому пиксели окна совпадают с пикселями картинки.
@@ -42,13 +48,20 @@ export const createDamageNumbers = (): ShowDamageNumber => {
     const element = document.createElement('div');
     element.textContent = String(damage);
 
+    // Крит отличается цветом (алый вместо белого) и кеглем (в DAMAGE_NUMBER_CRIT_FONT_SCALE раз
+    // крупнее) — так он выделяется на фоне потока обычных цифр. Тень и анимация — как у обычных.
+    const color = isCrit ? config.DAMAGE_NUMBER_CRIT_COLOR : config.DAMAGE_NUMBER_COLOR;
+    const fontSize = isCrit
+      ? config.DAMAGE_NUMBER_FONT_SIZE * config.DAMAGE_NUMBER_CRIT_FONT_SCALE
+      : config.DAMAGE_NUMBER_FONT_SIZE;
+
     element.style.cssText = `
       position: absolute;
       left: ${x}px;
       top: ${y}px;
       transform: translate(-50%, -50%);
-      color: ${config.DAMAGE_NUMBER_COLOR};
-      font: bold ${config.DAMAGE_NUMBER_FONT_SIZE}px system-ui, sans-serif;
+      color: ${color};
+      font: bold ${fontSize}px system-ui, sans-serif;
       text-shadow: 0 0 3px black, 0 0 3px black;
       user-select: none;
     `;

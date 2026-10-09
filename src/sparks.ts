@@ -23,7 +23,12 @@ const MAX_ALIVE_SPARKS = 1000;
 const SPARK_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
 
 // MeshBasicMaterial не зависит от света — искра светится сама по себе, как вспышка.
-const SPARK_MATERIAL = new THREE.MeshBasicMaterial({ color: config.SPARKS_COLOR });
+// Цвет материала белый (#ffffff), потому что финальный цвет искры = цвет материала × её
+// instanceColor (см. setColorAt ниже). Белый — множитель-«нейтраль», и цвет каждой искры
+// целиком задаётся её instanceColor: обычные искры жёлтые, критические — оранжевые, и всё
+// это в одном InstancedMesh и одном пуле. Раньше цвет был у материала (один на все искры) —
+// так крит-искры не отличить бы, не создавая второй меш.
+const SPARK_MATERIAL = new THREE.MeshBasicMaterial({ color: '#ffffff' });
 
 // Черновой объект для пересчёта матрицы искры: setMatrixAt принимает матрицу, а положение,
 // поворот и масштаб по отдельности лежат в Object3D. Один на весь модуль — как и сам InstancedMesh.
@@ -40,6 +45,11 @@ type Spark = {
   age: number;
   lifetime: number;
 
+  // Критическая ли эта искра: от неё зависит цвет (setColorAt) и — в update — размер
+  // (SPARKS_CRIT_SIZE_MULTIPLIER). Запоминается при рождении: критичность попадания уже решена
+  // в снаряде и в полёте не меняется.
+  isCrit: boolean;
+
   // Случайный поворот, заданный один раз при рождении: без него все кубики выглядели бы
   // выровненными по осям мира, как копии одной и той же искры.
   orientation: THREE.Euler;
@@ -54,6 +64,11 @@ export type SpawnParams = {
   // врага их не видно — пуля останавливается, врезавшись в грань). Если врага уже нет в списке —
   // пуля догнала призрака, тогда точка берётся сама по себе, она и так на поверхности.
   enemy?: Enemy;
+
+  // Критическое ли это попадание: определяет цвет искр (SPARKS_CRIT_COLOR вместо SPARKS_COLOR)
+  // и их количество/скорость/размер (множители SPARKS_CRIT_*). Булево значение запомнено в снаряде
+  // при выстреле (см. Projectile.isCrit). По умолчанию false — обычное попадание.
+  isCrit?: boolean;
 };
 
 export type Sparks = {
@@ -109,6 +124,13 @@ const getBurstDirection = (): THREE.Vector3 => {
   return new THREE.Vector3(ringRadius * Math.cos(angle), vertical, ringRadius * Math.sin(angle));
 };
 
+// Цвет искр одного попадания по текущему конфигу: обычные — SPARKS_COLOR, критические —
+// SPARKS_CRIT_COLOR. Читается в момент рождения и перекраски (refreshColor), поэтому смена цвета
+// в панели действует сразу. THREE.Color из хекс-строки хранит цвет в рабочем (линейном) пространстве —
+// ровно то, чего ждёт setColorAt у InstancedMesh.
+const getSparkColor = (isCrit: boolean): THREE.Color =>
+  new THREE.Color(isCrit ? config.SPARKS_CRIT_COLOR : config.SPARKS_COLOR);
+
 export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
   // Пул искр: массив фиксированной длины, слоты используются по кругу.
   const sparks: Spark[] = Array.from({ length: MAX_ALIVE_SPARKS }, () => ({
@@ -117,6 +139,7 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     velocity: new THREE.Vector3(),
     age: 0,
     lifetime: 0,
+    isCrit: false,
     orientation: new THREE.Euler(),
   }));
 
@@ -153,18 +176,28 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
 
   mesh.instanceMatrix.needsUpdate = true;
 
-  const spawn = ({ projectilePosition, enemy }: SpawnParams): void => {
-    const count = config.SPARKS_COUNT;
+  const spawn = ({ projectilePosition, enemy, isCrit = false }: SpawnParams): void => {
+    // Критическое попадание бьёт сильнее и ярче: больше искр (COUNT_MULTIPLIER) и каждая быстрее
+    // (SPEED_MULTIPLIER). Множители читаются тут, при рождении — как и SPARKS_COUNT/SPARKS_SPEED,
+    // правка панели действует на новые попадания.
+    const count = Math.round(config.SPARKS_COUNT * (isCrit ? config.SPARKS_CRIT_COUNT_MULTIPLIER : 1));
 
     // 0 в панели — выключить искры совсем.
     if (count <= 0) {
       return;
     }
 
+    // Цвет всех искр одного попадания: обычные — SPARKS_COLOR, критические — SPARKS_CRIT_COLOR.
+    // Цвет пишется в instanceColor (setColorAt), а не в материал: так крит-искры отличаются от
+    // обычных, оставаясь в одном InstancedMesh. Цвет не замораживается — refreshColor перекрашивает
+    // живые искры при смене конфига.
+    const baseColor = getSparkColor(isCrit);
+
     // Все искры одного попадания рождаются в одной точке.
     const burstPosition = getBurstPosition(projectilePosition, enemy);
     const speedSpread = config.SPARKS_SPEED_SPREAD;
     const lifetime = config.SPARKS_LIFETIME;
+    const baseSpeed = config.SPARKS_SPEED * (isCrit ? config.SPARKS_CRIT_SPEED_MULTIPLIER : 1);
 
     for (let n = 0; n < count; n++) {
       const index = cursor;
@@ -176,16 +209,25 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
 
       const spark = sparks[index];
 
-      // Скорость: SPARKS_SPEED минус случайная доля до SPARKS_SPEED_SPREAD — при 0 все летят
+      // Скорость: базовая скорость минус случайная доля до SPARKS_SPEED_SPREAD — при 0 все летят
       // одинаково, при 1 — от нуля до полной, и сгусток искр растягивается во время полёта.
-      const speed = config.SPARKS_SPEED * (1 - speedSpread * Math.random());
+      const speed = baseSpeed * (1 - speedSpread * Math.random());
 
       spark.alive = true;
       spark.position.copy(burstPosition);
       spark.velocity.copy(getBurstDirection()).multiplyScalar(speed);
       spark.age = 0;
       spark.lifetime = lifetime;
+      spark.isCrit = isCrit;
       spark.orientation.set(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2);
+
+      // Цвет этой искры: базовый цвет попадания уже в baseColor, копируем в её instanceColor.
+      mesh.setColorAt(index, baseColor);
+    }
+
+    // instanceColor — буфер, заполненный setColorAt, сообщаем драйверу видеокарты, что он изменился.
+    if (mesh.instanceColor) {
+      mesh.instanceColor.needsUpdate = true;
     }
   };
 
@@ -198,6 +240,7 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     const gravity = config.GRAVITY * config.SPARKS_GRAVITY_SCALE;
     const damping = 1 / (1 + config.SPARKS_DAMPING * delta);
     const size = config.SPARKS_SIZE;
+    const critSizeMultiplier = config.SPARKS_CRIT_SIZE_MULTIPLIER;
     const shrink = config.SPARKS_SHRINK;
 
     for (let index = 0; index < usedSlots; index++) {
@@ -227,8 +270,11 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
 
       // Размер в момент жизни: 0 — полный, 1 — сжат до нуля на SPARKS_SHRINK долю жизни.
       // Ноль у shrink тоже возможен — тогда искра живёт в полный размер и исчезает разом.
+      // Крит-искры крупнее в SPARKS_CRIT_SIZE_MULTIPLIER раз — множитель читается каждый кадр,
+      // поэтому правка в панели действует и на уже летящие искры.
       const lifeProgress = spark.age / spark.lifetime;
-      const scale = size * (1 - shrink * lifeProgress);
+      const sparkSize = size * (spark.isCrit ? critSizeMultiplier : 1);
+      const scale = sparkSize * (1 - shrink * lifeProgress);
 
       // Искра не проваливается под пол: центр держим на половине её текущего размера
       // и гасим вертикальную скорость — отскоков от пола не делаем, искры не мячи.
@@ -260,9 +306,27 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     mesh.instanceMatrix.needsUpdate = true;
   };
 
-  // Перекрашивает искры по текущему конфигу — вызывается, когда цвет меняют в панели настроек.
+  // Перекрашивает живые искры по текущему конфигу — вызывается, когда цвет меняют в панели настроек.
+  // Раньше хватало перекрасить общий материал (один цвет на все искры); теперь цвет живёт в
+  // instanceColor каждой искры, поэтому проходим по живым слотам и переписываем их цвет,
+  // в зависимости от isCrit: обычные — из SPARKS_COLOR, критические — из SPARKS_CRIT_COLOR.
   const refreshColor = (): void => {
-    SPARK_MATERIAL.color.set(config.SPARKS_COLOR);
+    let changed = false;
+
+    for (let index = 0; index < usedSlots; index++) {
+      const spark = sparks[index];
+
+      if (!spark.alive) {
+        continue;
+      }
+
+      mesh.setColorAt(index, getSparkColor(spark.isCrit));
+      changed = true;
+    }
+
+    if (changed && mesh.instanceColor) {
+      mesh.instanceColor.needsUpdate = true;
+    }
   };
 
   return { spawn, update, clear, refreshColor };

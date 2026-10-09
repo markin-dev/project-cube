@@ -11,6 +11,12 @@ import { removeEntity, type Entities, type Entity, type EntityContext } from './
 export type Projectile = Entity & {
   targetHandle: ColliderHandle;
   damage: number;
+
+  // Критический ли это снаряд — брошено при выстреле вместе с уроном (см. fireOneProjectile).
+  // Флаг тянется до попадания: искры, цифра урона и физика читают его из снаряда в applyHit,
+  // а не делают новый бросок в момент удара — иначе крит «мигал» бы на границе и урон в пути
+  // (getIncomingDamage) перестал бы быть точной суммой.
+  isCrit: boolean;
 };
 
 export type Projectiles = Entities<Projectile>;
@@ -51,6 +57,15 @@ const rollDamage = (): number => {
 
   return Math.floor(low + Math.random() * (high - low + 1));
 };
+
+// Бросок критического попадания: снаряд критический с вероятностью CRIT_CHANCE.
+// Один раз при выстреле (вместе с уроном) — результат запоминается в снаряде (см. Projectile).
+const rollCrit = (): boolean => Math.random() < config.CRIT_CHANCE;
+
+// Итоговый урон снаряда: если крит — брошенный урон, увеличенный в CRIT_MULTIPLIER раз.
+// Округляем до целого, потому что здоровье врагов — целые числа (hp).
+const applyCritToDamage = (damage: number, isCrit: boolean): number =>
+  isCrit ? Math.round(damage * config.CRIT_MULTIPLIER) : damage;
 
 // Выбирает до count целей: ближайших к игроку врагов из тех, кого летящие снаряды ещё не добьют.
 // Без этой проверки куб тратил бы снаряды впустую: снаряд летит до врага больше полсекунды,
@@ -149,7 +164,11 @@ const fireOneProjectile = ({
   const muzzle = new THREE.Vector3(0, config.PLAYER_SIZE / 2, 0);
   const direction = getAimPoint(target.enemy, muzzle).sub(muzzle);
   const size = config.PROJECTILE_SIZE;
-  const damage = rollDamage();
+
+  // Крит и урон бросаются ОДИН РАЗ при выстреле и запоминаются в снаряде: пока пуля летит,
+  // её «критичность» и урон не меняются (см. комментарий к Projectile.isCrit).
+  const isCrit = rollCrit();
+  const damage = applyCritToDamage(rollDamage(), isCrit);
 
   if (direction.lengthSq() === 0) {
     return;
@@ -176,7 +195,9 @@ const fireOneProjectile = ({
   // ActiveEvents.COLLISION_EVENTS — сообщать о столкновениях: так мы узнаём о попадании.
   const collider = world.createCollider(
     RAPIER.ColliderDesc.cuboid(size / 2, size / 2, size / 2)
-      .setMass(config.PROJECTILE_MASS)
+      // Крит-пуля тяжелее в CRIT_MASS_MULTIPLIER раз: при той же скорости она передаёт врагу
+      // больший импульс «масса × скорость», и движок сам сильнее его отбрасывает/раскачивает.
+      .setMass(isCrit ? config.PROJECTILE_MASS * config.CRIT_MASS_MULTIPLIER : config.PROJECTILE_MASS)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
       .setCollisionGroups(PROJECTILE_GROUPS),
     body,
@@ -186,7 +207,7 @@ const fireOneProjectile = ({
   mesh.scale.setScalar(size);
   mesh.position.copy(body.translation());
   scene.add(mesh);
-  entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle, damage });
+  entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle, damage, isCrit });
 };
 
 // Выпускает залп: по одному снаряду на каждую цель из targets (см. findTargets) — снаряды летят

@@ -339,12 +339,13 @@ const shoot = (delta: number): void => {
 
 // Наносит урон врагу и показывает число урона чуть выше его полоски здоровья.
 // getWorldPosition — где полоска находится в мире (её собственная позиция задана относительно врага).
-const hitEnemy = (enemy: Enemy, damage: number): void => {
+// isCrit — критическое ли попадание: число показывается другим цветом и крупнее.
+const hitEnemy = (enemy: Enemy, damage: number, isCrit: boolean): void => {
   damageEnemy(enemy, damage);
 
   const position = enemy.hpBar.group.getWorldPosition(new THREE.Vector3());
   position.y += config.DAMAGE_NUMBER_HEIGHT;
-  showDamageNumber({ position, damage, camera });
+  showDamageNumber({ position, damage, isCrit, camera });
 };
 
 // Попадание снаряда во врага, найденное в событиях столкновений.
@@ -366,15 +367,16 @@ const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
     return;
   }
 
-  // Урон снаряда запоминаем до его удаления: он бросается при выстреле (rollDamage в projectiles.ts).
-  const { damage } = projectile;
+  // Урон и критичность снаряда запоминаем до его удаления: брошенные при выстреле (rollDamage,
+  // rollCrit в projectiles.ts). isCrit решает об интенсивности искр и критичности цифры урона.
+  const { damage, isCrit } = projectile;
 
   const enemy = enemies.get(enemyHandle);
 
   // Искры — до удаления пули: её центр в момент столкновения и есть точка удара. Если врага
   // в списке уже нет, sparks.spawn поднимет искры на поверхность призрака сам (или возьмёт
-  // точку пули).
-  sparks.spawn({ projectilePosition: projectile.body.translation(), enemy });
+  // точку пули). Крит-попадание даёт больше, быстрее и другой цвет искр.
+  sparks.spawn({ projectilePosition: projectile.body.translation(), enemy, isCrit });
 
   removeEntity({ world, scene, entities: projectiles, handle: projectileHandle });
 
@@ -383,7 +385,7 @@ const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
     return;
   }
 
-  hitEnemy(enemy, damage);
+  hitEnemy(enemy, damage, isCrit);
 
   // Звук попадания — только по живому врагу: по призраку урон не наносится, это не «попадание».
   sound.playHit();
