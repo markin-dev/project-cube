@@ -48,6 +48,13 @@ export const createDamageNumbers = (): ShowDamageNumber => {
     const element = document.createElement('div');
     element.textContent = String(damage);
 
+    // Семантические классы — чтобы E2E-тесты (vitest browser mode) могли найти цифры урона и отличить
+    // крит от обычного по разметке, а не по хрупкому совпадению inline-цвета. В стилях игры не мешают.
+    element.classList.add('damage-number');
+    if (isCrit) {
+      element.classList.add('is-crit');
+    }
+
     // Крит отличается цветом (алый вместо белого) и кеглем (в DAMAGE_NUMBER_CRIT_FONT_SCALE раз
     // крупнее) — так он выделяется на фоне потока обычных цифр. Тень и анимация — как у обычных.
     const color = isCrit ? config.DAMAGE_NUMBER_CRIT_COLOR : config.DAMAGE_NUMBER_COLOR;

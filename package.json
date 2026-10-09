@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser": "bash scripts/run-browser-tests.sh",
+    "test:e2e-legacy": "node tests/run-all.cjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
@@ -15,7 +19,12 @@
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
+    "@vitest/browser": "^5.0.3",
+    "@vitest/browser-playwright": "^5.0.3",
+    "happy-dom": "^20.14.6",
+    "playwright-core": "^1.64.0",
     "typescript": "~6.0.2",
-    "vite": "^8.3.2"
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
   }
 }

@@ -51,7 +51,8 @@ const getIncomingDamage = (projectiles: Projectiles, enemyHandle: ColliderHandle
 // Урон снаряда: случайное целое из [PROJECTILE_DAMAGE_MIN, PROJECTILE_DAMAGE_MAX].
 // Границы упорядочиваем на месте — если перепутать их в панели, диапазон всё равно будет
 // от меньшего к большему, а не уйдёт в отрицательные числа. Равные значения — урон без рандома.
-const rollDamage = (): number => {
+// Экспортируются для юнит-тестов (unit/crit-damage.test.ts).
+export const rollDamage = (): number => {
   const low = Math.min(config.PROJECTILE_DAMAGE_MIN, config.PROJECTILE_DAMAGE_MAX);
   const high = Math.max(config.PROJECTILE_DAMAGE_MIN, config.PROJECTILE_DAMAGE_MAX);
 
@@ -60,11 +61,13 @@ const rollDamage = (): number => {
 
 // Бросок критического попадания: снаряд критический с вероятностью CRIT_CHANCE.
 // Один раз при выстреле (вместе с уроном) — результат запоминается в снаряде (см. Projectile).
-const rollCrit = (): boolean => Math.random() < config.CRIT_CHANCE;
+// Экспортируется для юнит-тестов.
+export const rollCrit = (): boolean => Math.random() < config.CRIT_CHANCE;
 
 // Итоговый урон снаряда: если крит — брошенный урон, увеличенный в CRIT_MULTIPLIER раз.
 // Округляем до целого, потому что здоровье врагов — целые числа (hp).
-const applyCritToDamage = (damage: number, isCrit: boolean): number =>
+// Экспортируется для юнит-тестов.
+export const applyCritToDamage = (damage: number, isCrit: boolean): number =>
   isCrit ? Math.round(damage * config.CRIT_MULTIPLIER) : damage;
 
 // Выбирает до count целей: ближайших к игроку врагов из тех, кого летящие снаряды ещё не добьют.
