@@ -211,8 +211,14 @@ export const moveEnemies = (world: RAPIER.World, enemies: Enemies, delta: number
 
     // Радиальная составляющая: сколько добавить, чтобы идти к центру с config.ENEMY_SPEED,
     // но не больше, чем разрешает ускорение за кадр.
+    // Бюджет ускорения включает компенсацию трения: пол каждый шаг снимает со скользящего врага
+    // до ENEMY_FRICTION × GRAVITY скорости, и без компенсации ускорение ниже этого порога
+    // (при трении 0.6 — около 5.9 м/с²) означало бы неспособность встать с места: трение
+    // гасило бы прирост в том же шаге — дальние свежие враги стояли бы намертво. С компенсацией
+    // ползунок означает чистый разгон, а трение по-прежнему гасит удары, скольжения и боковую
+    // скорость — оно не тронуто.
     const radialChange = config.ENEMY_SPEED - radialSpeed;
-    const maxChange = config.ENEMY_ACCELERATION * delta;
+    const maxChange = (config.ENEMY_ACCELERATION + config.ENEMY_FRICTION * config.GRAVITY) * delta;
     const clampedRadialChange = Math.abs(radialChange) > maxChange ? Math.sign(radialChange) * maxChange : radialChange;
     const newRadialSpeed = radialSpeed + clampedRadialChange;
 
