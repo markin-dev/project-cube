@@ -6,9 +6,11 @@ import { isEnemyOnFloor, type Enemies, type Enemy } from './enemies';
 import { removeEntity, type Entities, type Entity, type EntityContext } from './entity';
 
 // Снаряд помнит, в какого врага его выпустили, — чтобы не стрелять во врага,
-// которого уже добьют летящие в него снаряды (см. findTarget).
+// которого уже добьют летящие в него снаряды (см. findTargets), и свой урон — он бросается
+// при выстреле, и пока снаряд в пути, «урон в пути» складывается из фактических значений.
 export type Projectile = Entity & {
   targetHandle: ColliderHandle;
+  damage: number;
 };
 
 export type Projectiles = Entities<Projectile>;
@@ -32,11 +34,22 @@ const getDistanceToCenterSquared = (entity: Entity): number => {
   return x * x + z * z;
 };
 
-// Урон, который уже летит во врага: сколько выпущенных в него снарядов ещё в воздухе, × урон снаряда.
-const getIncomingDamage = (projectiles: Projectiles, enemyHandle: ColliderHandle): number => {
-  const incomingCount = [...projectiles.values()].filter(({ targetHandle }) => targetHandle === enemyHandle).length;
+// Урон, который уже летит во врага: сумма уронов выпущенных в него снарядов, ещё не долетевших.
+// Урон каждого снаряда бросается при выстреле (см. rollDamage), поэтому сумма точная —
+// в отличие от оценки «количество × урон», которая при случайном уроне лишь приблизительна.
+const getIncomingDamage = (projectiles: Projectiles, enemyHandle: ColliderHandle): number =>
+  [...projectiles.values()]
+    .filter(({ targetHandle }) => targetHandle === enemyHandle)
+    .reduce((sum, { damage }) => sum + damage, 0);
 
-  return incomingCount * config.PROJECTILE_DAMAGE;
+// Урон снаряда: случайное целое из [PROJECTILE_DAMAGE_MIN, PROJECTILE_DAMAGE_MAX].
+// Границы упорядочиваем на месте — если перепутать их в панели, диапазон всё равно будет
+// от меньшего к большему, а не уйдёт в отрицательные числа. Равные значения — урон без рандома.
+const rollDamage = (): number => {
+  const low = Math.min(config.PROJECTILE_DAMAGE_MIN, config.PROJECTILE_DAMAGE_MAX);
+  const high = Math.max(config.PROJECTILE_DAMAGE_MIN, config.PROJECTILE_DAMAGE_MAX);
+
+  return Math.floor(low + Math.random() * (high - low + 1));
 };
 
 // Выбирает до count целей: ближайших к игроку врагов из тех, кого летящие снаряды ещё не добьют.
@@ -136,6 +149,7 @@ const fireOneProjectile = ({
   const muzzle = new THREE.Vector3(0, config.PLAYER_SIZE / 2, 0);
   const direction = getAimPoint(target.enemy, muzzle).sub(muzzle);
   const size = config.PROJECTILE_SIZE;
+  const damage = rollDamage();
 
   if (direction.lengthSq() === 0) {
     return;
@@ -172,7 +186,7 @@ const fireOneProjectile = ({
   mesh.scale.setScalar(size);
   mesh.position.copy(body.translation());
   scene.add(mesh);
-  entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle });
+  entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle, damage });
 };
 
 // Выпускает залп: по одному снаряду на каждую цель из targets (см. findTargets) — снаряды летят

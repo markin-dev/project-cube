@@ -19,9 +19,10 @@
 //
 // Ориентир по балансу: куб стреляет раз в 0.1 с, одно попадание — 15 HP. Обычному врагу (40 HP)
 // нужно 3 попадания — ~0.3 с, крошке — одно, громиле (120 HP) — 8, то есть ~0.8 с.
-// Враг идёт до куба ~5 секунд. Точные числа — в ENEMY_KINDS, FIRE_INTERVAL и PROJECTILE_DAMAGE (config.ts).
+// Враг идёт до куба ~5 секунд. Точные числа — в ENEMY_KINDS, FIRE_INTERVAL и PROJECTILE_DAMAGE_MIN/MAX (config.ts).
 //
 // Чтобы проверить конкретную волну, открой игру с параметром ?wave=N — она начнётся с волны N.
+// Урон снаряда случайный в диапазоне PROJECTILE_DAMAGE_MIN…PROJECTILE_DAMAGE_MAX (config.ts).
 import type { EnemyKindName } from './config';
 import type { Shape } from './patterns';
 

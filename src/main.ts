@@ -366,6 +366,9 @@ const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
     return;
   }
 
+  // Урон снаряда запоминаем до его удаления: он бросается при выстреле (rollDamage в projectiles.ts).
+  const { damage } = projectile;
+
   const enemy = enemies.get(enemyHandle);
 
   // Искры — до удаления пули: её центр в момент столкновения и есть точка удара. Если врага
@@ -380,7 +383,7 @@ const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
     return;
   }
 
-  hitEnemy(enemy, config.PROJECTILE_DAMAGE);
+  hitEnemy(enemy, damage);
 
   // Звук попадания — только по живому врагу: по призраку урон не наносится, это не «попадание».
   sound.playHit();
