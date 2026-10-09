@@ -8,7 +8,7 @@
 #   • если нет — разово скачивает пакет libasound2t64 через `apt-get download` (sudo не нужен),
 #     распаковывает библиотеку в .local-libs/ (в .gitignore) и подставляет через LD_LIBRARY_PATH.
 #
-# Запуск: npm run test:browser  (или bash scripts/run-browser-tests.sh -- ...доп. аргументы vitest)
+# Запуск: npm run test:e2e  (или bash scripts/run-browser-tests.sh -- ...доп. аргументы vitest)
 set -euo pipefail
 
 LIB_DIR="$PWD/.local-libs/asound/usr/lib/x86_64-linux-gnu"

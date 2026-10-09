@@ -1,6 +1,6 @@
 # Переход на тесты: vitest (unit) + vitest browser mode (E2E)
 
-Дата: 2026-10-10. Статус: **Фазы 1–2 реализованы и зелёные. Сырые CDP-скрипты оставлены как legacy на время миграции.**
+Дата: 2026-10-10. Статус: **Реализовано (Сессии 16–17): юниты + эталонный browser E2E зелёные; сырые CDP-скрипты удалены, часть выкидана как избыточная.**
 
 ## Зачем
 
@@ -25,10 +25,11 @@
 - `unit/crit-damage.test.ts` — `rollDamage` (границы, перепутанные/равные), `rollCrit` (шансы 0/1/0.5 на большой выборке), `applyCritToDamage` (множитель + округление), `findTargets` (ближайшие, исключение добиваемых).
 - `unit/patterns.test.ts` — геометрия форм спавна (кольцо/дуга/шеренга/кучка/случайная).
 - `unit/schedule.test.ts` — `buildWaveSchedule`: delay, время врагов, `ENEMY_COUNT_MULTIPLIER`, случайный тип.
+- `unit/movement.test.ts` (Сессия 17, заменил три legacy-браузерных физ-теста) — модель движения на **headless-Rapier**: `createPhysics()` даёт чистый мир+пол без рендера, враг — фикстура `{ body, kind }` (движению нужны только тело Rapier и `kind.size`). Тесты: радиальный разгон до `ENEMY_SPEED` несмотря на трение (компенсация), изолированное гашение касательной скорости по `ENEMY_TANGENTIAL_DAMPING` (прогон без `step`, чтобы не мешали трение/гравитация), управляемость врага на вершине стопки против врага в воздухе (опора через `castRay`).
 
-Итог: **4 файла / 39 тестов, ~0.7 с.** Для тестов экспортированы чистые функции `rollDamage`/`rollCrit`/`applyCritToDamage` из `src/projectiles.ts`.
+Итог: **5 файлов / 42 теста, ~0.7 с.** Для тестов экспортированы чистые функции `rollDamage`/`rollCrit`/`applyCritToDamage` из `src/projectiles.ts`.
 
-### Фаза 2 — эталонный E2E (`npm run test:browser`, `vitest.browser.config.ts`)
+### Фаза 2 — эталонный E2E (`npm run test:e2e`, `vitest.browser.config.ts`)
 Пакеты: `@vitest/browser@5.0.3`, `@vitest/browser-playwright@5.0.3` + `playwright` (полный, уже был), chromium скачан через `npx playwright install chromium`.
 - `browser/helpers.ts` — `game()` (DEV-хук `window.__game`), `waitUntil` (опрос условия, т.к. цикл идёт в реальном времени), `damageNumbers(onlyCrit)`.
 - `browser/smoke.test.ts` — игра заводится импортом: есть canvas/`__game`, первая волна выпускает врагов.
@@ -39,13 +40,18 @@
 
 ## Грабли (важно)
 
-- **`libasound.so.2`** — Playwright-chromiumу нужна эта системная библиотека; в лёгком headless-окружении её нет, а `sudo apt-get` требует пароль. Обход — `scripts/run-browser-tests.sh` (вызывает `npm run test:browser`): если библиотеки нет, разово качает пакет `libasound2t64` через `apt-get download` (sudo не нужен), распаковывает в `.local-libs/` (в `.gitignore`) и подставляет через `LD_LIBRARY_PATH`. Если поставить `sudo apt-get install -y libasound2t64` — скрипт просто запускает тесты. WebGL в headless держится на `--enable-unsafe-swiftshader --use-angle=swiftshader` (в конфиге).
+- **`libasound.so.2`** — Playwright-chromiumу нужна эта системная библиотека; в лёгком headless-окружении её нет, а `sudo apt-get` требует пароль. Обход — `scripts/run-browser-tests.sh` (вызывает `npm run test:e2e`): если библиотеки нет, разово качает пакет `libasound2t64` через `apt-get download` (sudo не нужен), распаковывает в `.local-libs/` (в `.gitignore`) и подставляет через `LD_LIBRARY_PATH`. Если поставить `sudo apt-get install -y libasound2t64` — скрипт просто запускает тесты. WebGL в headless держится на `--enable-unsafe-swiftshader --use-angle=swiftshader` (в конфиге).
+- **Headless-Rapier и `castRay` (Сессия 17):** QueryPipeline (индекс, по которому работают лучи) обновляется **только на `world.step()`** — до первого шага `castRay` не видит ни одного коллайдера. В `unit/movement.test.ts` поэтому после создания тел делается один `world.step()`, иначе «опора» через луч не работает.
 - **`connectOptions.wsEndpoint` провайдера ≠ CDP.** Playwright-провайдер умеет `connect()` (playwright-протокол) или `launch()` (свой chromium), но НЕ `connectOverCDP`. Поэтому удалённая Windows-chrome на `localhost:9333` (проброс через SSH) для vitest browser mode непригодна — отсюда необходимость локального chromium и его библиотек.
 
-## Судьба сырых CDP-скриптов
+## Судьба сырых CDP-скриптов (Сессия 17)
 
-Оставлены в `tests/` как **`npm run test:e2e-legacy`** на время миграции: они по-прежнему проверяют звук/волны/физическую опору/разгон, ещё не перенесённые в vitest browser. Как только нужное портируется — удалить. (Ранняя курация: `sound-sets-test` удалён как устаревший, `wave-picker-test` починен изоляцией localStorage.)
+Каталог `tests/` удалён целиком (`npm run test:e2e-legacy` убран). Курация по принципу пользователя «не переносить всё подряд, выкидывать избыточное»:
 
-## Дальше (отложено, портировать по мере надобности)
+- **Покрыто юнитами/browser → удалено:** `crit-test` (крит-математика + DOM), `damage-range-test` (границы урона), `projectile-count-test` (счёт таргетинга `findTargets`).
+- **Физика → заменена `unit/movement.test.ts` (headless-Rapier):** `enemy-acceleration`, `enemy-tangential`, `enemy-support` — вместо флакивших браузерных снимков скоростей.
+- **Выкидано как чрезмерное/хрупкое:** `hit-sound` (146 строк) + `shot-death` (359 строк) — Web Audio-интроспекция и управление ~15 контролами lil-gui; `wave-picker` — отладочный UI. Это осознанная **потеря покрытия звука/отладочного UI** (при надобности добавить лёгкий звуковой smoke в browser-mode).
 
-Перенести в vitest browser полезное из legacy: звук (hit-sound, shot-death — реальная автоматизация Web Audio), счётчик волны/залпы во времени, физику опоры (`enemy-support`) и разгона (`enemy-acceleration`) — с «максимумом за окно»/ретраями вместо мгновенных снимков, ручной выбор волны (`wave-picker`).
+## Дальше
+
+Ничего портировать не осталось. `npm test` гоняет оба слоя (юниты → E2E). Если появится желание вернуть звуковое покрытие — минимальный browser-mode smoke (считаем `AudioBufferSourceNode.start`-вызовы во время игры), без панельной обвязки.

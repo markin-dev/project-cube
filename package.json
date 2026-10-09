@@ -7,10 +7,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run",
     "test:watch": "vitest",
-    "test:browser": "bash scripts/run-browser-tests.sh",
-    "test:e2e-legacy": "node tests/run-all.cjs"
+    "test:e2e": "bash scripts/run-browser-tests.sh"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
