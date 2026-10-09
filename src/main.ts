@@ -437,7 +437,7 @@ const handleCollisions = (): void => {
 const updateGame = (delta: number): void => {
   spawnScheduledEnemies(delta);
   shoot(delta);
-  moveEnemies(enemies, delta);
+  moveEnemies(world, enemies, delta);
 
   // Продвигаем симуляцию на delta секунд: двигаем тела, разрешаем столкновения
   // и складываем события о них в eventQueue.

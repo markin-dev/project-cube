@@ -49,8 +49,10 @@ export const isEnemyOverArena = ({ body }: Pick<Enemy, 'body'>): boolean => {
   return Math.abs(x) <= halfArena && Math.abs(z) <= halfArena;
 };
 
-// Проверка «враг стоит на полу (а не летит и не падает с арены)?». Нужна движению (в воздухе враг
-// не управляется) и прицелу (летящий враг падает под гравитацией — это учитывает упреждение).
+// Проверка «враг стоит на полу (а не летит и не падает с арены)?». Нужна прицелу: летящий враг
+// падает под гравитацией — это учитывает упреждение. Движение эту проверку не использует — ему
+// нужна опора под ногами (см. isEnemySupported): враг на вершине кучи управляем, хотя пола
+// и не касается.
 // Стоит на полу — значит, центр врага над площадью арены, не ниже пола и не выше ON_FLOOR_HEIGHT_FRACTION
 // его роста. Враг, перевалившийся центром за край, теряет управление и падает — а не цепляется за край
 // и не ползёт к центру уже под полом.
@@ -58,6 +60,42 @@ export const isEnemyOnFloor = (enemy: Pick<Enemy, 'body' | 'kind'>): boolean => 
   const { y } = enemy.body.translation();
 
   return isEnemyOverArena(enemy) && y >= 0 && y < enemy.kind.size * ON_FLOOR_HEIGHT_FRACTION;
+};
+
+// Насколько ниже нижней грани врага ещё может лежать опора — с таким зазором «стоящий на ярусе»
+// кучи враг считается опирающимся. Кубы лежат друг на друге вплотную, зазор нужен только
+// на дрожание контакта.
+const SUPPORT_GAP = 0.1;
+
+// Проверка «под врагом есть опора — пол или крыша другого врага?». Нужна движению: враг,
+// стоящий на вершине кучи, — не «летун», он управляется и ползёт к центру, сползая с кучи.
+// Иначе куча сверху вниз превращалась в статуи: верхние ярусы не касались пола, не двигались
+// сами и давили на нижних (расстрел неподвижной стопки).
+// Дешёвый случай по высоте — как старая проверка пола (пол или нижний ярус); выше — спрашиваем
+// физику: луч вниз от центра. filterGroups = ENEMY_GROUPS — луч «стоит на месте врага» и видит
+// только то, с чем враг физически сталкивается (пол, врагов, игрока, снаряды); призраков не видит.
+// Собственное тело исключено — иначе луч упёрся бы в самого врага, в котором начался.
+const isEnemySupported = (world: RAPIER.World, enemy: Enemy): boolean => {
+  if (!isEnemyOverArena(enemy)) {
+    return false;
+  }
+
+  const { x, y, z } = enemy.body.translation();
+  const { size } = enemy.kind;
+
+  // Враг низко — это пол или нижний ярус кучи: дешёвая проверка по высоте, без запроса к миру.
+  if (y >= 0 && y < size * ON_FLOOR_HEIGHT_FRACTION) {
+    return true;
+  }
+
+  // Под полом враг — сорвался с края арены: опоры нет.
+  if (y < 0) {
+    return false;
+  }
+
+  const ray = new RAPIER.Ray({ x, y, z }, { x: 0, y: -1, z: 0 });
+
+  return world.castRay(ray, size / 2 + SUPPORT_GAP, true, undefined, ENEMY_GROUPS, undefined, enemy.body) !== null;
 };
 
 // Проверка «враг выше потолка смерти?» — центр поднялся выше config.DEATH_CEILING_HEIGHT.
@@ -133,7 +171,9 @@ export const damageEnemy = (enemy: Enemy, damage: number): void => {
   setHpBarValue(enemy.hpBar, enemy.hp / enemy.kind.hp);
 };
 
-// Каждый кадр враги, стоящие на полу, разгоняются к центру арены, где стоит игрок.
+// Каждый кадр враги с опорой под ногами (полом или ярусом кучи — см. isEnemySupported)
+// разгоняются к центру арены, где стоит игрок. Враг на вершине кучи тоже управляем: он ползёт
+// по куче к центру и сползает с неё, вместо того чтобы лежать статуей и давить на нижних.
 // Скорость раскладывается на две ортогональные составляющие:
 //   радиальная — прямо к центру: подгоняется к config.ENEMY_SPEED не быстрее, чем позволяет
 //     config.ENEMY_ACCELERATION × delta;
@@ -144,15 +184,15 @@ export const damageEnemy = (enemy: Enemy, damage: number): void => {
 // замыкалось в неподвижной стопке (расстрел такой кучи был расстрелом статуи).
 // Скорость не задаётся жёстко, а меняется постепенно — иначе любой толчок от удара гасился бы
 // в следующем же кадре. Враг в воздухе не управляется.
-export const moveEnemies = (enemies: Enemies, delta: number): void => {
+export const moveEnemies = (world: RAPIER.World, enemies: Enemies, delta: number): void => {
   for (const enemy of enemies.values()) {
     const { body } = enemy;
     const position = body.translation();
-    const isOnFloor = isEnemyOnFloor(enemy);
+    const isSupported = isEnemySupported(world, enemy);
     const distance = Math.hypot(position.x, position.z);
 
     // В самом центре стоит игрок, враг туда не попадёт, но делить на ноль всё равно не будем.
-    if (!isOnFloor || distance === 0) {
+    if (!isSupported || distance === 0) {
       continue;
     }
 
