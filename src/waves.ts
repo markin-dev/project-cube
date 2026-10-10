@@ -50,7 +50,7 @@ export const WAVES: Wave[] = [
   },
   {
     name: 'Кольцо по часовой',
-    groups: [{ shape: { type: 'circle', count: 8, angle: 0 }, interval: 0.4 }],
+    groups: [{ shape: { type: 'circle', count: 4, angle: 0, distance: 45 } }],
   },
   {
     name: 'С двух сторон',
@@ -98,6 +98,42 @@ export const WAVES: Wave[] = [
       { shape: { type: 'circle', count: 4, angle: 0 }, delay: 5 },
       { shape: { type: 'random', count: 6 }, delay: 9, interval: 0.8 },
       { shape: { type: 'cluster', count: 4 }, delay: 15 },
+    ],
+  },
+  // ─── ДЕМО НОВЫХ ФОРМ ────────────────────────────────────────────────────────
+  // Ниже — волны, показывающие крест (cross), многоугольник (polygon), путь (path) и луч (ray).
+  // Проверить любую можно сразу: открыть игру с ?wave=11 (нумерация с единицы).
+
+  {
+    name: 'Крест-накрест',
+    groups: [
+      { shape: { type: 'cross', count: 12, angle: 0, armLength: 10 } },
+      { shape: { type: 'cross', count: 12, angle: 45, armLength: 10 }, delay: 6 },
+    ],
+  },
+  {
+    name: 'Пятиугольник',
+    groups: [{ shape: { type: 'polygon', count: 10, sides: 5, angle: 0 }, interval: 0.5 }],
+  },
+  {
+    name: 'Змейка',
+    // Путь вокруг арены: точки идут по порядку опор при interval — враги «маршируют» по кривой.
+    groups: [
+      {
+        shape: {
+          type: 'path',
+          count: 12,
+          anchors: [{ angle: 0 }, { angle: 90 }, { angle: 180 }, { angle: 270 }],
+        },
+        interval: 0.4,
+      },
+    ],
+  },
+  {
+    name: 'Лучи с боков',
+    groups: [
+      { shape: { type: 'ray', count: 5, angle: 90, length: 6 } },
+      { shape: { type: 'ray', count: 5, angle: 270, length: 6 }, delay: 4 },
     ],
   },
 ];

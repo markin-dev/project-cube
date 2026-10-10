@@ -15,11 +15,14 @@ export type Point = {
 // Кольцо (arc = 360, по умолчанию) или дуга (arc < 360) на окружности спавна.
 // Кольцо: первый враг на angle, остальные по часовой. Дуга: angle — её середина, крайние точки включены.
 // Отрицательный arc — тот же обход, но против часовой.
+// distance — на каком удалении от центра арены лежит окружность (по умолчанию SPAWN_RADIUS): меньше —
+// ближе к игроку (внутренний обстрел), больше — дальше (осада). Есть у всех форм.
 type CircleShape = {
   type: 'circle';
   count: number;
   angle?: number;
   arc?: number;
+  distance?: number;
 };
 
 // «То тут то там»: случайные точки на окружности спавна.
@@ -29,6 +32,7 @@ type RandomShape = {
   count: number;
   angle?: number;
   arc?: number;
+  distance?: number;
 };
 
 // Шеренга: враги в ряд поперёк направления на куб, центр ряда на окружности спавна под углом angle.
@@ -38,6 +42,7 @@ type LineShape = {
   count: number;
   angle?: number;
   width?: number;
+  distance?: number;
 };
 
 // Кучка: враги случайно разбросаны в круге радиуса radius вокруг точки окружности спавна под углом angle.
@@ -46,9 +51,66 @@ type ClusterShape = {
   count: number;
   angle?: number;
   radius?: number;
+  distance?: number;
 };
 
-export type Shape = CircleShape | RandomShape | LineShape | ClusterShape;
+// Луч: враги в ряд ВДОЛЬ радиуса (к центру и от центра), а не поперёк, как line. Центр ряда — точка
+// окружности спавна под углом angle, общая длина — length. Это отсутствующая раньше ориентация:
+// line даёт только поперечный ряд, ray — радиальный («спица» к центру).
+type RayShape = {
+  type: 'ray';
+  count: number;
+  angle?: number;
+  length?: number;
+  distance?: number;
+};
+
+// Крест: четыре плеча (два перпендикулярных ряда), исходящих из точки окружности спавна под углом
+// angle (angle = 0 — «+» по осям экрана, angle = 45 — «×»). count точек делится поровну между плечами,
+// каждое плечо идёт от центра до armLength наружу.
+type CrossShape = {
+  type: 'cross';
+  count: number;
+  angle?: number;
+  armLength?: number;
+  distance?: number;
+};
+
+// Многоугольник: count точек вдоль ПЕРИМЕТРА правильного sides-угольника, вписанного в окружность
+// радиуса distance и повёрнутого на angle. В отличие от circle (точки по дуге) — прямые рёбра.
+type PolygonShape = {
+  type: 'polygon';
+  count: number;
+  sides?: number;
+  angle?: number;
+  distance?: number;
+};
+
+// Точка опоры пути: экранной угол плюс необязательный радиус (по умолчанию distance формы).
+type PathAnchor = {
+  angle: number;
+  radius?: number;
+};
+
+// Путь: count точек вдоль ломаной через anchors — ПОРЯДКОВО, от первой опоры к последней.
+// Порядок точек = порядок появления при interval, поэтому путь «марширует»: враги ползут по кривой
+// (змейка, поезд). Опоры с разными радиусами описывают заход внутрь/наружу и спираль.
+type PathShape = {
+  type: 'path';
+  count: number;
+  anchors: PathAnchor[];
+  distance?: number;
+};
+
+export type Shape =
+  | CircleShape
+  | RandomShape
+  | LineShape
+  | ClusterShape
+  | RayShape
+  | CrossShape
+  | PolygonShape
+  | PathShape;
 
 // ─── ПЕРЕВОД ЭКРАННОГО УГЛА В НАПРАВЛЕНИЕ НА ПОЛУ ───────────────────────────
 
@@ -69,11 +131,12 @@ const getScreenDirection = (degrees: number): Point => {
   };
 };
 
-// Точка на окружности спавна под экранным углом.
-const getSpawnCirclePoint = (degrees: number): Point => {
+// Точка на окружности спавна под экранным углом. distance — радиус этой окружности (по умолчанию
+// SPAWN_RADIUS): уменьшает/увеличивает удалённость формы от центра арены.
+const getSpawnCirclePoint = (degrees: number, distance: number = config.SPAWN_RADIUS): Point => {
   const direction = getScreenDirection(degrees);
 
-  return { x: direction.x * config.SPAWN_RADIUS, z: direction.z * config.SPAWN_RADIUS };
+  return { x: direction.x * distance, z: direction.z * distance };
 };
 
 const getRandomAngle = (): number => Math.random() * 360;
@@ -83,7 +146,12 @@ const getIndices = (count: number): number[] => Array.from({ length: count }, (_
 
 // ─── ФОРМЫ ───────────────────────────────────────────────────────────────────
 
-const getCirclePoints = ({ count, angle = getRandomAngle(), arc = 360 }: CircleShape): Point[] => {
+const getCirclePoints = ({
+  count,
+  angle = getRandomAngle(),
+  arc = 360,
+  distance = config.SPAWN_RADIUS,
+}: CircleShape): Point[] => {
   const isFullCircle = Math.abs(arc) >= 360;
 
   // Кольцо: count равных шагов по кругу — последний враг не совпадает с первым.
@@ -96,18 +164,24 @@ const getCirclePoints = ({ count, angle = getRandomAngle(), arc = 360 }: CircleS
     return count === 1 ? angle : angle - arc / 2 + (index * arc) / (count - 1);
   };
 
-  return getIndices(count).map((index) => getSpawnCirclePoint(getAngle(index)));
+  return getIndices(count).map((index) => getSpawnCirclePoint(getAngle(index), distance));
 };
 
-const getRandomPoints = ({ count, angle = getRandomAngle(), arc = 360 }: RandomShape): Point[] =>
-  getIndices(count).map(() => getSpawnCirclePoint(angle - arc / 2 + Math.random() * arc));
+const getRandomPoints = ({
+  count,
+  angle = getRandomAngle(),
+  arc = 360,
+  distance = config.SPAWN_RADIUS,
+}: RandomShape): Point[] =>
+  getIndices(count).map(() => getSpawnCirclePoint(angle - arc / 2 + Math.random() * arc, distance));
 
 const getLinePoints = ({
   count,
   angle = getRandomAngle(),
   width = config.DEFAULT_LINE_WIDTH,
+  distance = config.SPAWN_RADIUS,
 }: LineShape): Point[] => {
-  const center = getSpawnCirclePoint(angle);
+  const center = getSpawnCirclePoint(angle, distance);
 
   // Ряд идёт поперёк направления на куб, то есть вдоль направления «угол + 90°» — по часовой.
   const along = getScreenDirection(angle + 90);
@@ -125,20 +199,129 @@ const getClusterPoints = ({
   count,
   angle = getRandomAngle(),
   radius = config.DEFAULT_CLUSTER_RADIUS,
+  distance = config.SPAWN_RADIUS,
 }: ClusterShape): Point[] => {
-  const center = getSpawnCirclePoint(angle);
+  const center = getSpawnCirclePoint(angle, distance);
 
   // Случайная точка в круге: случайное направление и случайное расстояние.
   // Корень из случайного числа нужен, чтобы точки ложились равномерно, а не скучивались у центра.
   // Если враги появятся вплотную, физика сама их растолкает.
   return getIndices(count).map(() => {
     const direction = Math.random() * Math.PI * 2;
-    const distance = radius * Math.sqrt(Math.random());
+    const dist = radius * Math.sqrt(Math.random());
 
     return {
-      x: center.x + Math.cos(direction) * distance,
-      z: center.z + Math.sin(direction) * distance,
+      x: center.x + Math.cos(direction) * dist,
+      z: center.z + Math.sin(direction) * dist,
     };
+  });
+};
+
+const getRayPoints = ({
+  count,
+  angle = getRandomAngle(),
+  length = config.DEFAULT_RAY_LENGTH,
+  distance = config.SPAWN_RADIUS,
+}: RayShape): Point[] => {
+  const center = getSpawnCirclePoint(angle, distance);
+
+  // Луч идёт ВДОЛЬ радиуса: направление «угол + 0°» — наружу от центра арены (как в getSpawnCirclePoint).
+  const radial = getScreenDirection(angle);
+
+  // Смещение врага от центра луча: от -length/2 до +length/2 вдоль радиуса.
+  // Отрицательные смещения — внутрь к центру арены, положительные — наружу.
+  const getOffset = (index: number): number => (count === 1 ? 0 : -length / 2 + (index * length) / (count - 1));
+
+  return getIndices(count).map((index) => ({
+    x: center.x + radial.x * getOffset(index),
+    z: center.z + radial.z * getOffset(index),
+  }));
+};
+
+const getCrossPoints = ({
+  count,
+  angle = getRandomAngle(),
+  armLength = config.DEFAULT_CROSS_ARM_LENGTH,
+  distance = config.SPAWN_RADIUS,
+}: CrossShape): Point[] => {
+  const center = getSpawnCirclePoint(angle, distance);
+
+  // Четыре плеча креста: вверх/вправо/вниз/влево относительно angle (angle = 0 — «+», angle = 45 — «×»).
+  const arms = [angle, angle + 90, angle + 180, angle + 270].map(getScreenDirection);
+
+  // count точек делим между плечами поровну: первые (count % 4) плеч получают по лишней.
+  const base = Math.floor(count / 4);
+  const extra = count % 4;
+
+  return arms.flatMap((direction, armIndex) => {
+    const armCount = base + (armIndex < extra ? 1 : 0);
+
+    // Плечо идёт от центра до armLength наружу (центр не занят, чтобы плечи не накладывались).
+    return getIndices(armCount).map((index) => {
+      const step = armLength * ((index + 1) / armCount);
+
+      return { x: center.x + direction.x * step, z: center.z + direction.z * step };
+    });
+  });
+};
+
+const getPolygonPoints = ({
+  count,
+  sides = config.DEFAULT_POLYGON_SIDES,
+  angle = getRandomAngle(),
+  distance = config.SPAWN_RADIUS,
+}: PolygonShape): Point[] => {
+  // Число сторон — целое и не меньше треугольника.
+  const n = Math.max(3, Math.round(sides));
+
+  // Вершины правильного n-угольника на окружности радиуса distance, повёрнутого на angle.
+  const vertices = getIndices(n).map((index) => getSpawnCirclePoint(angle + (index * 360) / n, distance));
+
+  // count точек вдоль периметра равными шагами (все рёбра равны, поэтому шаг по t = index/count*n).
+  return getIndices(count).map((index) => {
+    const t = (index / count) * n; // пройденное число рёбер: 0 … n
+    const edge = Math.floor(t) % n;
+    const frac = t - Math.floor(t);
+    const from = vertices[edge];
+    const to = vertices[(edge + 1) % n];
+
+    return { x: from.x + (to.x - from.x) * frac, z: from.z + (to.z - from.z) * frac };
+  });
+};
+
+const getPathPoints = ({ count, anchors, distance = config.SPAWN_RADIUS }: PathShape): Point[] => {
+  // Опоры пути в координатах пола: у каждой опоры свой радиус, по умолчанию — distance формы.
+  const nodes = anchors.map((anchor) => getSpawnCirclePoint(anchor.angle, anchor.radius ?? distance));
+
+  if (nodes.length === 0) {
+    return [];
+  }
+
+  if (nodes.length === 1) {
+    return getIndices(count).map(() => ({ ...nodes[0] }));
+  }
+
+  // Длины прямых между опорами и общий путь.
+  const segments = nodes.slice(1).map((node, index) => Math.hypot(node.x - nodes[index].x, node.z - nodes[index].z));
+  const total = segments.reduce((sum, length) => sum + length, 0);
+
+  // count точек равными шагами ВДОЛЬ пути: первая в первой опоре, последняя — в последней.
+  return getIndices(count).map((index) => {
+    let rest = count === 1 ? 0 : (index / (count - 1)) * total;
+
+    for (let i = 0; i < segments.length; i++) {
+      if (rest <= segments[i] || i === segments.length - 1) {
+        const frac = segments[i] === 0 ? 0 : rest / segments[i];
+        const from = nodes[i];
+        const to = nodes[i + 1];
+
+        return { x: from.x + (to.x - from.x) * frac, z: from.z + (to.z - from.z) * frac };
+      }
+
+      rest -= segments[i];
+    }
+
+    return { ...nodes[nodes.length - 1] };
   });
 };
 
@@ -153,5 +336,13 @@ export const getShapePoints = (shape: Shape): Point[] => {
       return getLinePoints(shape);
     case 'cluster':
       return getClusterPoints(shape);
+    case 'ray':
+      return getRayPoints(shape);
+    case 'cross':
+      return getCrossPoints(shape);
+    case 'polygon':
+      return getPolygonPoints(shape);
+    case 'path':
+      return getPathPoints(shape);
   }
 };
