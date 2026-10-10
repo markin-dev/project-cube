@@ -61,28 +61,6 @@ type ClusterShape = BaseShape & {
   distance?: number;
 };
 
-// Луч: враги в ряд ВДОЛЬ радиуса (к центру и от центра), а не поперёк, как line. Центр ряда — точка
-// окружности спавна под углом angle, общая длина — length. Это отсутствующая раньше ориентация:
-// line даёт только поперечный ряд, ray — радиальный («спица» к центру).
-type RayShape = BaseShape & {
-  type: 'ray';
-  count: number;
-  angle?: number;
-  length?: number;
-  distance?: number;
-};
-
-// Крест: четыре плеча (два перпендикулярных ряда), исходящих из точки окружности спавна под углом
-// angle (angle = 0 — «+» по осям экрана, angle = 45 — «×»). count точек делится поровну между плечами,
-// каждое плечо идёт от центра до armLength наружу.
-type CrossShape = BaseShape & {
-  type: 'cross';
-  count: number;
-  angle?: number;
-  armLength?: number;
-  distance?: number;
-};
-
 // Многоугольник: count точек вдоль ПЕРИМЕТРА правильного sides-угольника, вписанного в окружность
 // радиуса distance и повёрнутого на angle. В отличие от circle (точки по дуге) — прямые рёбра.
 // sides — ЧИСЛО УГЛОВ (3 — треугольник, 6 — шестиугольник): форма универсальна, углов сколько угодно.
@@ -138,8 +116,6 @@ export type Shape =
   | RandomShape
   | LineShape
   | ClusterShape
-  | RayShape
-  | CrossShape
   | PolygonShape
   | PathShape
   | WaveShape
@@ -247,54 +223,6 @@ const getClusterPoints = ({
       x: center.x + Math.cos(direction) * dist,
       z: center.z + Math.sin(direction) * dist,
     };
-  });
-};
-
-const getRayPoints = ({
-  count,
-  angle = getRandomAngle(),
-  length = config.DEFAULT_RAY_LENGTH,
-  distance = config.SPAWN_RADIUS,
-}: RayShape): Point[] => {
-  const center = getSpawnCirclePoint(angle, distance);
-
-  // Луч идёт ВДОЛЬ радиуса: направление «угол + 0°» — наружу от центра арены (как в getSpawnCirclePoint).
-  const radial = getScreenDirection(angle);
-
-  // Смещение врага от центра луча: от -length/2 до +length/2 вдоль радиуса.
-  // Отрицательные смещения — внутрь к центру арены, положительные — наружу.
-  const getOffset = (index: number): number => (count === 1 ? 0 : -length / 2 + (index * length) / (count - 1));
-
-  return getIndices(count).map((index) => ({
-    x: center.x + radial.x * getOffset(index),
-    z: center.z + radial.z * getOffset(index),
-  }));
-};
-
-const getCrossPoints = ({
-  count,
-  angle = getRandomAngle(),
-  armLength = config.DEFAULT_CROSS_ARM_LENGTH,
-  distance = config.SPAWN_RADIUS,
-}: CrossShape): Point[] => {
-  const center = getSpawnCirclePoint(angle, distance);
-
-  // Четыре плеча креста: вверх/вправо/вниз/влево относительно angle (angle = 0 — «+», angle = 45 — «×»).
-  const arms = [angle, angle + 90, angle + 180, angle + 270].map(getScreenDirection);
-
-  // count точек делим между плечами поровну: первые (count % 4) плеч получают по лишней.
-  const base = Math.floor(count / 4);
-  const extra = count % 4;
-
-  return arms.flatMap((direction, armIndex) => {
-    const armCount = base + (armIndex < extra ? 1 : 0);
-
-    // Плечо идёт от центра до armLength наружу (центр не занят, чтобы плечи не накладывались).
-    return getIndices(armCount).map((index) => {
-      const step = armLength * ((index + 1) / armCount);
-
-      return { x: center.x + direction.x * step, z: center.z + direction.z * step };
-    });
   });
 };
 
@@ -441,10 +369,6 @@ export const getShapePoints = (shape: Shape): Point[] => {
         return getLinePoints(shape);
       case 'cluster':
         return getClusterPoints(shape);
-      case 'ray':
-        return getRayPoints(shape);
-      case 'cross':
-        return getCrossPoints(shape);
       case 'polygon':
         return getPolygonPoints(shape);
       case 'path':

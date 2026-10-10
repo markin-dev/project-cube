@@ -40,7 +40,7 @@
 | 2026-10-09 | [Честное ускорение врагов: компенсация трения](docs/plans/2026-10-09-enemy-accel-friction.md) | Реализован, на прод не выложен |
 | 2026-10-09 | [Криты: шанс, множитель урона, заметный визуал и физика](docs/plans/2026-10-09-critical-hits.md) | Реализован, на прод не выложен |
 | 2026-10-10 | [Переход на тесты: vitest (unit) + vitest browser mode (E2E)](docs/plans/2026-10-10-vitest-migration.md) | Реализовано: юниты + эталонный browser E2E; сырые CDP-скрипты — legacy, остальное портируется позже |
-| 2026-10-10 | [Новые формы паттернов: distance, ray, cross, polygon, path](docs/plans/2026-10-10-new-pattern-shapes.md) | Реализовано, на прод не выложено |
+| 2026-10-10 | [Новые формы паттернов: distance, ray, cross, polygon, path](docs/plans/2026-10-10-new-pattern-shapes.md) | Реализовано, `ray`/`cross` удалены тем же днём, на прод не выложено |
 | 2026-10-10 | [Формы wave и perimeter, параметр jitter, универсальный полигон](docs/plans/2026-10-10-wave-perimeter-jitter.md) | Реализовано, на прод не выложено |
 
 ## Правила ведения памяти
