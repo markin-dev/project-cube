@@ -32,6 +32,11 @@ export type Target = {
 const PROJECTILE_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
 const PROJECTILE_MATERIAL = new THREE.MeshLambertMaterial({ color: config.PROJECTILE_COLOR });
 
+// Отдельный общий материал для критических снарядов: крит-пуля того же цвета, что и крит-искры
+// (SPARKS_CRIT_COLOR), — так вылет и попадание крита выглядят одним цветом. Цвет перекрашивается
+// из панели в refreshProjectileColor (его зовёт applyLiveConfig при любой правке цветов).
+const CRIT_PROJECTILE_MATERIAL = new THREE.MeshLambertMaterial({ color: config.SPARKS_CRIT_COLOR });
+
 // Квадрат расстояния от объекта до центра арены по полу.
 // Для сравнения «кто ближе» корень не нужен: от него порядок не меняется, а считать дешевле.
 const getDistanceToCenterSquared = (entity: Entity): number => {
@@ -174,6 +179,10 @@ const fireOneProjectile = ({
   const isCrit = rollCrit();
   const damage = applyCritToDamage(rollDamage(), isCrit);
 
+  // Видимый размер: крит-пуля крупнее в CRIT_PROJECTILE_SIZE_MULTIPLIER раз (только меш —
+  // физический коллайдер считается от size = PROJECTILE_SIZE и не меняется, чтобы не править баланс).
+  const visualSize = size * (isCrit ? config.CRIT_PROJECTILE_SIZE_MULTIPLIER : 1);
+
   if (direction.lengthSq() === 0) {
     return;
   }
@@ -207,8 +216,8 @@ const fireOneProjectile = ({
     body,
   );
 
-  const mesh = new THREE.Mesh(PROJECTILE_GEOMETRY, PROJECTILE_MATERIAL);
-  mesh.scale.setScalar(size);
+  const mesh = new THREE.Mesh(PROJECTILE_GEOMETRY, isCrit ? CRIT_PROJECTILE_MATERIAL : PROJECTILE_MATERIAL);
+  mesh.scale.setScalar(visualSize);
   mesh.position.copy(body.translation());
   scene.add(mesh);
   entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle, damage, isCrit });
@@ -246,4 +255,8 @@ export const removeFarProjectiles = ({ world, scene, entities }: EntityContext<P
 // Перекрашивает пули по текущему конфигу — вызывается, когда цвет меняют в панели настроек.
 export const refreshProjectileColor = (): void => {
   PROJECTILE_MATERIAL.color.set(config.PROJECTILE_COLOR);
+
+  // Крит-пули — тем же цветом, что крит-искры (SPARKS_CRIT_COLOR): правишь цвет искр в панели —
+  // и крит-снаряды перекрашиваются вместе с ними (applyLiveConfig зовёт эту функцию при любом изменении).
+  CRIT_PROJECTILE_MATERIAL.color.set(config.SPARKS_CRIT_COLOR);
 };

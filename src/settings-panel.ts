@@ -96,6 +96,7 @@ const SECTIONS: Section[] = [
       { key: 'CRIT_CHANCE', label: 'Шанс крита (0–1)', min: 0, max: 1, step: 0.05 },
       { key: 'CRIT_MULTIPLIER', label: 'Множитель урона', min: 1, max: 10, step: 0.1 },
       { key: 'CRIT_MASS_MULTIPLIER', label: 'Множитель массы пули', min: 1, max: 10, step: 0.1 },
+      { key: 'CRIT_PROJECTILE_SIZE_MULTIPLIER', label: 'Множитель размера пули', min: 1, max: 3, step: 0.1 },
     ],
   },
   {
