@@ -19,15 +19,16 @@
 
 ## Что сделано
 
-### Фаза 1 — юниты (`npm test`, `vitest.config.ts`, окружение happy-dom)
+### Фаза 1 — юниты (`npm run test:unit`, `vitest.config.ts`, окружение happy-dom)
 Пакеты: `vitest`, `happy-dom` (нужен localStorage для `config.ts`/`config-storage.ts`). Тесты в `unit/` (вне `src`, чтобы сборочный `tsc` их не трогал; vitest транспилирует TS сам через esbuild).
 - `unit/config-storage.test.ts` — сохранение/восстановление настроек, `applyChanges`/`getChanges`/`countChanges`/`formatChangesForCode`, roundtrip через localStorage.
 - `unit/crit-damage.test.ts` — `rollDamage` (границы, перепутанные/равные), `rollCrit` (шансы 0/1/0.5 на большой выборке), `applyCritToDamage` (множитель + округление), `findTargets` (ближайшие, исключение добиваемых).
 - `unit/patterns.test.ts` — геометрия форм спавна (кольцо/дуга/шеренга/кучка/случайная).
 - `unit/schedule.test.ts` — `buildWaveSchedule`: delay, время врагов, `ENEMY_COUNT_MULTIPLIER`, случайный тип.
 - `unit/movement.test.ts` (Сессия 17, заменил три legacy-браузерных физ-теста) — модель движения на **headless-Rapier**: `createPhysics()` даёт чистый мир+пол без рендера, враг — фикстура `{ body, kind }` (движению нужны только тело Rapier и `kind.size`). Тесты: радиальный разгон до `ENEMY_SPEED` несмотря на трение (компенсация), изолированное гашение касательной скорости по `ENEMY_TANGENTIAL_DAMPING` (прогон без `step`, чтобы не мешали трение/гравитация), управляемость врага на вершине стопки против врага в воздухе (опора через `castRay`).
+- `unit/enemy-bounds.test.ts`, `unit/spawn-placement.test.ts`, `unit/projectile-motion.test.ts` (Сессия 17, добор покрытия) — границы состояния врага (арена/пол/потолок смерти), подбор места появления (сдвиг с занятой точки, запоминание занятого, ярус выше в тесноте) и полёт снаряда (упреждение прицела `predictPosition`, подбор промахов `removeFarProjectiles`).
 
-Итог: **5 файлов / 42 теста, ~0.7 с.** Для тестов экспортированы чистые функции `rollDamage`/`rollCrit`/`applyCritToDamage` из `src/projectiles.ts`.
+Итог: **8 файлов / 54 теста, ~0.7 с.** Для тестов экспортированы чистые функции `rollDamage`/`rollCrit`/`applyCritToDamage`/`predictPosition` из `src/projectiles.ts`.
 
 ### Фаза 2 — эталонный E2E (`npm run test:e2e`, `vitest.browser.config.ts`)
 Пакеты: `@vitest/browser@5.0.3`, `@vitest/browser-playwright@5.0.3` + `playwright` (полный, уже был), chromium скачан через `npx playwright install chromium`.

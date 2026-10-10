@@ -100,7 +100,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 // вдоль линии как раз сильнее всего дёргается от попаданий: сразу после удара враг летит назад, но тут же
 // снова идёт к кубу, и упреждение по ней только уводило бы пули ему за спину.
 // Ниже пола прогноз не опускаем: центр врага не может быть ниже половины его размера.
-const predictPosition = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vector3 => {
+// Экспортируется для юнит-тестов (unit/projectile-motion.test.ts).
+export const predictPosition = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vector3 => {
   const position = new THREE.Vector3().copy(enemy.body.translation());
   const lineOfFire = position.clone().sub(muzzle);
 
