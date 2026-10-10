@@ -101,7 +101,8 @@ export const WAVES: Wave[] = [
     ],
   },
   // ─── ДЕМО НОВЫХ ФОРМ ────────────────────────────────────────────────────────
-  // Ниже — волны, показывающие крест (cross), многоугольник (polygon), путь (path) и луч (ray).
+  // Ниже — волны, показывающие крест (cross), полигон (polygon), путь (path), луч (ray),
+  // волну (wave), периметр (perimeter) и случайный разброс (jitter).
   // Проверить любую можно сразу: открыть игру с ?wave=11 (нумерация с единицы).
 
   {
@@ -112,8 +113,9 @@ export const WAVES: Wave[] = [
     ],
   },
   {
-    name: 'Пятиугольник',
-    groups: [{ shape: { type: 'polygon', count: 10, sides: 5, angle: 0 }, interval: 0.5 }],
+    // Универсальный полигон: sides — число углов (здесь 6, шестиугольник), можно любое от 3.
+    name: 'Полигон',
+    groups: [{ shape: { type: 'polygon', count: 12, sides: 6, angle: 0 }, interval: 0.5 }],
   },
   {
     name: 'Змейка',
@@ -135,5 +137,15 @@ export const WAVES: Wave[] = [
       { shape: { type: 'ray', count: 5, angle: 90, length: 6 } },
       { shape: { type: 'ray', count: 5, angle: 270, length: 6 }, delay: 4 },
     ],
+  },
+  {
+    // Волна: ряд с колебанием по радиусу. interval — точки появляются вдоль волны от края к краю.
+    name: 'Волна',
+    groups: [{ shape: { type: 'wave', count: 10, angle: 0, width: 8, amplitude: 2, periods: 3 }, interval: 0.35 }],
+  },
+  {
+    // Периметр: враги по краю арены. jitter разбивает идеальную линию — контур «дрожит».
+    name: 'Периметр',
+    groups: [{ shape: { type: 'perimeter', count: 16, jitter: 0.6 }, interval: 0.4 }],
   },
 ];

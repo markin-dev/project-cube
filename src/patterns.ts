@@ -12,12 +12,19 @@ export type Point = {
 // Углы во всех формах — в градусах относительно ЭКРАНА, как на циферблате:
 // 0° — вверх, 90° — вправо, 180° — вниз, 270° — влево. Угол не указан — выбирается случайно.
 
+// Общее поле ВСЕХ форм: случайный сдвиг каждой точки после построения — края формы дрожат и
+// не выглядят идеально. Сдвиг — равномерный в круге радиуса jitter (0 или не указано — без сдвига).
+// Применяется в getShapePoints для любой формы.
+type BaseShape = {
+  jitter?: number;
+};
+
 // Кольцо (arc = 360, по умолчанию) или дуга (arc < 360) на окружности спавна.
 // Кольцо: первый враг на angle, остальные по часовой. Дуга: angle — её середина, крайние точки включены.
 // Отрицательный arc — тот же обход, но против часовой.
 // distance — на каком удалении от центра арены лежит окружность (по умолчанию SPAWN_RADIUS): меньше —
 // ближе к игроку (внутренний обстрел), больше — дальше (осада). Есть у всех форм.
-type CircleShape = {
+type CircleShape = BaseShape & {
   type: 'circle';
   count: number;
   angle?: number;
@@ -27,7 +34,7 @@ type CircleShape = {
 
 // «То тут то там»: случайные точки на окружности спавна.
 // angle и arc ограничивают сектор (например, angle: 0, arc: 90 — только сверху). По умолчанию весь круг.
-type RandomShape = {
+type RandomShape = BaseShape & {
   type: 'random';
   count: number;
   angle?: number;
@@ -37,7 +44,7 @@ type RandomShape = {
 
 // Шеренга: враги в ряд поперёк направления на куб, центр ряда на окружности спавна под углом angle.
 // width — длина ряда. Порядок — по часовой (слева направо, если смотреть от куба наружу).
-type LineShape = {
+type LineShape = BaseShape & {
   type: 'line';
   count: number;
   angle?: number;
@@ -46,7 +53,7 @@ type LineShape = {
 };
 
 // Кучка: враги случайно разбросаны в круге радиуса radius вокруг точки окружности спавна под углом angle.
-type ClusterShape = {
+type ClusterShape = BaseShape & {
   type: 'cluster';
   count: number;
   angle?: number;
@@ -57,7 +64,7 @@ type ClusterShape = {
 // Луч: враги в ряд ВДОЛЬ радиуса (к центру и от центра), а не поперёк, как line. Центр ряда — точка
 // окружности спавна под углом angle, общая длина — length. Это отсутствующая раньше ориентация:
 // line даёт только поперечный ряд, ray — радиальный («спица» к центру).
-type RayShape = {
+type RayShape = BaseShape & {
   type: 'ray';
   count: number;
   angle?: number;
@@ -68,7 +75,7 @@ type RayShape = {
 // Крест: четыре плеча (два перпендикулярных ряда), исходящих из точки окружности спавна под углом
 // angle (angle = 0 — «+» по осям экрана, angle = 45 — «×»). count точек делится поровну между плечами,
 // каждое плечо идёт от центра до armLength наружу.
-type CrossShape = {
+type CrossShape = BaseShape & {
   type: 'cross';
   count: number;
   angle?: number;
@@ -78,7 +85,8 @@ type CrossShape = {
 
 // Многоугольник: count точек вдоль ПЕРИМЕТРА правильного sides-угольника, вписанного в окружность
 // радиуса distance и повёрнутого на angle. В отличие от circle (точки по дуге) — прямые рёбра.
-type PolygonShape = {
+// sides — ЧИСЛО УГЛОВ (3 — треугольник, 6 — шестиугольник): форма универсальна, углов сколько угодно.
+type PolygonShape = BaseShape & {
   type: 'polygon';
   count: number;
   sides?: number;
@@ -95,11 +103,34 @@ type PathAnchor = {
 // Путь: count точек вдоль ломаной через anchors — ПОРЯДКОВО, от первой опоры к последней.
 // Порядок точек = порядок появления при interval, поэтому путь «марширует»: враги ползут по кривой
 // (змейка, поезд). Опоры с разными радиусами описывают заход внутрь/наружу и спираль.
-type PathShape = {
+type PathShape = BaseShape & {
   type: 'path';
   count: number;
   anchors: PathAnchor[];
   distance?: number;
+};
+
+// Волна: как line — ряд поперёк направления на куб от точки окружности спавна под углом angle, но
+// каждая точка сдвинута по радиусу по синусоиде: получается волна. width — длина ряда, amplitude —
+// амплитуда колебания (по радиусу внутрь/наружу), periods — полных колебаний на длине width.
+// Порядок точек — вдоль волны от одного края к другому (при interval волна «расползается»).
+type WaveShape = BaseShape & {
+  type: 'wave';
+  count: number;
+  angle?: number;
+  width?: number;
+  amplitude?: number;
+  periods?: number;
+  distance?: number;
+};
+
+// Периметр: count точек вдоль КВАДРАТА арены (мировые оси, на экране — ромб, т.к. оси X/Z идут по
+// диагоналям). Замкнутый обход по часовой от «верхней» вершины. inset — отступ внутрь от стенки:
+// центр врага обязан остаться над ареной, иначе он погибнет сразу (см. isEnemyOverArena).
+type PerimeterShape = BaseShape & {
+  type: 'perimeter';
+  count: number;
+  inset?: number;
 };
 
 export type Shape =
@@ -110,7 +141,9 @@ export type Shape =
   | RayShape
   | CrossShape
   | PolygonShape
-  | PathShape;
+  | PathShape
+  | WaveShape
+  | PerimeterShape;
 
 // ─── ПЕРЕВОД ЭКРАННОГО УГЛА В НАПРАВЛЕНИЕ НА ПОЛУ ───────────────────────────
 
@@ -325,24 +358,103 @@ const getPathPoints = ({ count, anchors, distance = config.SPAWN_RADIUS }: PathS
   });
 };
 
-// Точки для любой формы. switch по полю type: TypeScript внутри каждой ветки знает точный тип формы.
-export const getShapePoints = (shape: Shape): Point[] => {
-  switch (shape.type) {
-    case 'circle':
-      return getCirclePoints(shape);
-    case 'random':
-      return getRandomPoints(shape);
-    case 'line':
-      return getLinePoints(shape);
-    case 'cluster':
-      return getClusterPoints(shape);
-    case 'ray':
-      return getRayPoints(shape);
-    case 'cross':
-      return getCrossPoints(shape);
-    case 'polygon':
-      return getPolygonPoints(shape);
-    case 'path':
-      return getPathPoints(shape);
+const getWavePoints = ({
+  count,
+  angle = getRandomAngle(),
+  width = config.DEFAULT_WAVE_WIDTH,
+  amplitude = config.DEFAULT_WAVE_AMPLITUDE,
+  periods = config.DEFAULT_WAVE_PERIODS,
+  distance = config.SPAWN_RADIUS,
+}: WaveShape): Point[] => {
+  const center = getSpawnCirclePoint(angle, distance);
+
+  // База — тот же поперечный ряд, что у line (вдоль «угол + 90°»), а колебание синусоиды идёт
+  // по радиусу (вдоль «угол + 0°»): волна «бежит» по окружности спавна, качаясь внутрь/наружу.
+  const along = getScreenDirection(angle + 90);
+  const across = getScreenDirection(angle);
+
+  if (count === 1) {
+    return [{ ...center }];
   }
+
+  // t — положение точки вдоль ряда от 0 до 1. Синус нулевой на обоих краях, поэтому концы волны
+  // лежат на средней линии.
+  return getIndices(count).map((index) => {
+    const t = index / (count - 1);
+    const alongOffset = -width / 2 + t * width;
+    const waveOffset = amplitude * Math.sin(2 * Math.PI * periods * t);
+
+    return {
+      x: center.x + along.x * alongOffset + across.x * waveOffset,
+      z: center.z + along.z * alongOffset + across.z * waveOffset,
+    };
+  });
+};
+
+const getPerimeterPoints = ({ count, inset = config.PERIMETER_INSET }: PerimeterShape): Point[] => {
+  // Половина арены минус отступ от стенки: центр врага должен остаться над полом, иначе он погибнет.
+  const h = config.ARENA_SIZE / 2 - inset;
+
+  // Вершины квадрата в мировых координатах. На экране оси X/Z идут по диагоналям, поэтому
+  // (-h,-h) — «верх», (h,-h) — «право», (h,h) — «низ», (-h,h) — «лево»: обход по часовой.
+  const corners: Point[] = [
+    { x: -h, z: -h },
+    { x: h, z: -h },
+    { x: h, z: h },
+    { x: -h, z: h },
+  ];
+  const edge = 2 * h; // каждое ребро квадрата одинаковой длины
+  const total = edge * corners.length;
+
+  // Замкнутый обход: count точек равными шагами по периметру, последняя не совпадает с первой.
+  return getIndices(count).map((index) => {
+    const travelled = (index / count) * total;
+    const corner = Math.floor(travelled / edge) % corners.length;
+    const frac = (travelled % edge) / edge;
+    const from = corners[corner];
+    const to = corners[(corner + 1) % corners.length];
+
+    return { x: from.x + (to.x - from.x) * frac, z: from.z + (to.z - from.z) * frac };
+  });
+};
+
+// Случайный сдвиг каждой точки в круге радиуса jitter (равномерно: направление — любое,
+// расстояние — корень из случайного, чтобы точки не скучивались у центра круга сдвига).
+const applyJitter = (points: Point[], jitter: number): Point[] =>
+  points.map((point) => {
+    const direction = Math.random() * Math.PI * 2;
+    const dist = jitter * Math.sqrt(Math.random());
+
+    return { x: point.x + Math.cos(direction) * dist, z: point.z + Math.sin(direction) * dist };
+  });
+
+// Точки для любой формы. Сначала switch по полю type (TypeScript внутри ветки знает точный тип),
+// потом — случайный сдвиг jitter, если он задан: он общий для всех форм.
+export const getShapePoints = (shape: Shape): Point[] => {
+  const points = (() => {
+    switch (shape.type) {
+      case 'circle':
+        return getCirclePoints(shape);
+      case 'random':
+        return getRandomPoints(shape);
+      case 'line':
+        return getLinePoints(shape);
+      case 'cluster':
+        return getClusterPoints(shape);
+      case 'ray':
+        return getRayPoints(shape);
+      case 'cross':
+        return getCrossPoints(shape);
+      case 'polygon':
+        return getPolygonPoints(shape);
+      case 'path':
+        return getPathPoints(shape);
+      case 'wave':
+        return getWavePoints(shape);
+      case 'perimeter':
+        return getPerimeterPoints(shape);
+    }
+  })();
+
+  return shape.jitter ? applyJitter(points, shape.jitter) : points;
 };
