@@ -32,10 +32,10 @@ const SAMPLE_RATE = 44100;
 const VARIANTS = 6;
 
 // Состояние «звук выключен» и «выбранные наборы» переживают перезагрузку страницы.
-const MUTED_STORAGE_KEY = 'project-animal:muted';
+const MUTED_STORAGE_KEY = 'project-cube:muted';
 
 // Выбранные наборы — одним объектом { hit: 'brick', shot: 'click', death: 'pop' }.
-const SETS_STORAGE_KEY = 'project-animal:sound-sets';
+const SETS_STORAGE_KEY = 'project-cube:sound-sets';
 
 // Случайное число в диапазоне — универсальный источник «непохожести» вариантов.
 const rnd = (min: number, max: number): number => min + Math.random() * (max - min);

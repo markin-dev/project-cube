@@ -8,7 +8,7 @@
 // Модуль не знает, какие именно поля есть в конфиге: работает с любым объектом из чисел, строк
 // и вложенных объектов (как ENEMY_KINDS). Поэтому он не импортирует config.ts, а получает объекты параметрами.
 
-const STORAGE_KEY = 'project-animal:config-changes';
+const STORAGE_KEY = 'project-cube:config-changes';
 
 // Числа сравниваем с допуском: ползунок может вернуть 0.30000000000000004 вместо 0.3.
 const NUMBER_TOLERANCE = 1e-9;

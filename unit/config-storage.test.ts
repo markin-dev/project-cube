@@ -15,7 +15,7 @@ import {
   saveChanges,
 } from '../src/config-storage';
 
-const STORAGE_KEY = 'project-animal:config-changes';
+const STORAGE_KEY = 'project-cube:config-changes';
 
 describe('isRecord', () => {
   it('обычный объект — да, null/массив/примитив — нет', () => {
