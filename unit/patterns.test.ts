@@ -6,6 +6,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { config } from '../src/config';
 import { getShapePoints } from '../src/patterns';
+import { WAVES } from '../src/waves';
 
 // Радиус окружности спавна фиксируем, чтобы считать ожидаемые координаты.
 const R = 10;
@@ -149,59 +150,6 @@ describe('многоугольник (polygon)', () => {
   });
 });
 
-describe('путь (path)', () => {
-  beforeEach(() => {
-    config.SPAWN_RADIUS = R;
-  });
-
-  it('точки идут по порядку от первой опоры к последней', () => {
-    // Опоры под углами 0 («вверх») и 90 («вправо»): обе на одной линии z, x нарастает.
-    const points = getShapePoints({ type: 'path', count: 5, anchors: [{ angle: 0 }, { angle: 90 }] });
-
-    expect(points).toHaveLength(5);
-
-    const zLine = -R * Math.SQRT1_2; // общая z для обоих углов (0° и 90°)
-    for (const p of points) expect(p.z).toBeCloseTo(zLine, 6);
-
-    // x монотонно нарастает от первой опоры к последней.
-    expect(points[0].x).toBeCloseTo(-R * Math.SQRT1_2, 6);
-    expect(points[points.length - 1].x).toBeCloseTo(R * Math.SQRT1_2, 6);
-    for (let i = 1; i < points.length; i++) expect(points[i].x).toBeGreaterThan(points[i - 1].x);
-  });
-
-  it('первая точка — в первой опоре, последняя — в последней', () => {
-    const points = getShapePoints({ type: 'path', count: 4, anchors: [{ angle: 0 }, { angle: 180 }] });
-
-    // Опоры 0° («вверх») и 180° («вниз»): путь по диагонали через центр.
-    expect(points[0].x).toBeCloseTo(screenUp.x, 6);
-    expect(points[0].z).toBeCloseTo(screenUp.z, 6);
-    expect(points[points.length - 1].x).toBeCloseTo(-screenUp.x, 6);
-    expect(points[points.length - 1].z).toBeCloseTo(-screenUp.z, 6);
-  });
-
-  it('у опоры свой радиус: путь изнутри наружу вдоль одного радиуса', () => {
-    const inner = 5;
-    const points = getShapePoints({ type: 'path', count: 3, anchors: [{ angle: 0, radius: inner }, { angle: 0 }] });
-
-    expect(points).toHaveLength(3);
-    expect(dist(points[0])).toBeCloseTo(inner, 6);
-    expect(dist(points[points.length - 1])).toBeCloseTo(R, 6);
-
-    // Обе опоры на одном экранном углу (0°) → путь лежит на этом луче: x = z у каждой точки,
-    // а расстояние от центра монотонно растёт от inner к SPAWN_RADIUS.
-    for (const p of points) expect(p.x).toBeCloseTo(p.z, 6);
-    expect(dist(points[1])).toBeGreaterThan(dist(points[0]));
-    expect(dist(points[2])).toBeGreaterThan(dist(points[1]));
-  });
-
-  it('одна опора — все точки в ней же', () => {
-    const points = getShapePoints({ type: 'path', count: 4, anchors: [{ angle: 0 }] });
-
-    expect(points).toHaveLength(4);
-    for (const p of points) expect(p).toEqual(points[0]);
-  });
-});
-
 describe('периметр (perimeter)', () => {
   const ARENA = 30;
   const INSET = 1;
@@ -281,6 +229,31 @@ describe('случайный разброс (jitter)', () => {
     for (let i = 0; i < jittered.length; i++) {
       const delta = Math.hypot(jittered[i].x - base[i].x, jittered[i].z - base[i].z);
       expect(delta).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+});
+
+describe('безопасная зона в описаниях волн', () => {
+  beforeEach(() => {
+    config.ARENA_SIZE = 30;
+    config.SAFE_RADIUS = 8;
+    config.SPAWN_RADIUS = 11;
+    config.PERIMETER_INSET = 1;
+  });
+
+  it('ни одна волна не ставит точки ближе зоны плюс половина самого крупного врага', () => {
+    // Подборщик прижал бы такие точки к краю зоны (см. spawn-placement) — волна пошла бы не так,
+    // как задумана. Запас на половину самого крупного типа нужен потому, что без enemy тип врага
+    // случайный, и для брута (1.5 м) вся его коробка должна быть вне зоны.
+    const maxHalf = Math.max(...Object.values(config.ENEMY_KINDS).map((kind) => kind.size)) / 2;
+    const limit = config.SAFE_RADIUS + maxHalf;
+
+    for (const wave of WAVES) {
+      for (const group of wave.groups) {
+        for (const point of getShapePoints(group.shape)) {
+          expect(Math.hypot(point.x, point.z), `волна «${wave.name}»`).toBeGreaterThanOrEqual(limit - 1e-9);
+        }
+      }
     }
   });
 });

@@ -5,8 +5,10 @@
 // ВАЖНО про ёмкость форм (2026-10-11): подборщик места при спавне не даёт врагам наложиться
 // (см. src/spawn-placement.ts), поэтому у формы с фиксированным габаритом L есть потолок числа
 // точек ≈ L / зазор. Формы line (шеренга), cluster (кучка) и wave (волна) имели габарит 3–6 м
-// и при счётчике больше ~9 размазывались плейсером в толпу — они удалены. Оставшиеся формы
-// большие (габарит 15–28 м, потолок 40–120 точек); идея на будущее — формы-области, у которых
+// и при счётчике больше ~9 размазывались плейсером в толпу — они удалены. Форма path (ломаная
+// через опоры) удалена тем же днём по решению пользователя — не прижилась (см. Сессию 29 в
+// docs/memory.md). Оставшиеся формы большие (габарит 15–28 м, потолок 40–120 точек); идея
+// на будущее — формы-области, у которых
 // ёмкость растёт с площадью, а не с длиной контура (подробно — в docs/memory.md, Сессии 24–25).
 import { config } from './config';
 
@@ -46,6 +48,8 @@ type CircleShape = BaseShape & {
 // кольцо random: от края зоны до стены арены с отступом PERIMETER_INSET — центр врага должен
 // остаться над полом, иначе он погибнет сразу (см. isEnemyOverArena).
 // Как и раньше, у random нет «домашней» окружности спавна, поэтому distance/angle/arc не работают.
+// Внутренняя граница кольца — SAFE_RADIUS с запасом на половину самого крупного типа врага: без
+// него подборщик прижал бы точку крупного врага к краю зоны (типы в группе случайные).
 type RandomShape = BaseShape & {
   type: 'random';
   count: number;
@@ -62,22 +66,6 @@ type PolygonShape = BaseShape & {
   distance?: number;
 };
 
-// Точка опоры пути: экранной угол плюс необязательный радиус (по умолчанию distance формы).
-type PathAnchor = {
-  angle: number;
-  radius?: number;
-};
-
-// Путь: count точек вдоль ломаной через anchors — ПОРЯДКОВО, от первой опоры к последней.
-// Порядок точек = порядок появления при interval, поэтому путь «марширует»: враги ползут по кривой
-// (змейка, поезд). Опоры с разными радиусами описывают заход внутрь/наружу и спираль.
-type PathShape = BaseShape & {
-  type: 'path';
-  count: number;
-  anchors: PathAnchor[];
-  distance?: number;
-};
-
 // Периметр: count точек вдоль КВАДРАТА арены (мировые оси, на экране — ромб, т.к. оси X/Z идут по
 // диагоналям). Замкнутый обход по часовой от «верхней» вершины. inset — отступ внутрь от стенки:
 // центр врага обязан остаться над ареной, иначе он погибнет сразу (см. isEnemyOverArena).
@@ -87,12 +75,7 @@ type PerimeterShape = BaseShape & {
   inset?: number;
 };
 
-export type Shape =
-  | CircleShape
-  | RandomShape
-  | PolygonShape
-  | PathShape
-  | PerimeterShape;
+export type Shape = CircleShape | RandomShape | PolygonShape | PerimeterShape;
 
 // ─── ПЕРЕВОД ЭКРАННОГО УГЛА В НАПРАВЛЕНИЕ НА ПОЛУ ───────────────────────────
 
@@ -150,8 +133,10 @@ const getCirclePoints = ({
 };
 
 const getRandomPoints = ({ count }: RandomShape): Point[] => {
-  // Кольцо спавна — от края безопасной зоны (общее правило подборщика) до стены арены с отступом.
-  const inner = config.SAFE_RADIUS;
+  // Кольцо спавна — от края безопасной зоны до стены арены с отступом. Запас на половину самого
+  // крупного типа врага: без него подборщик прижал бы точку крупного врага к краю зоны.
+  const maxHalf = Math.max(...Object.values(config.ENEMY_KINDS).map((kind) => kind.size)) / 2;
+  const inner = config.SAFE_RADIUS + maxHalf;
   const outer = config.ARENA_SIZE / 2 - config.PERIMETER_INSET;
 
   // Защита от вырождения: если зона съела кольцо целиком — прижимаем к внешней границе
@@ -190,42 +175,6 @@ const getPolygonPoints = ({
     const to = vertices[(edge + 1) % n];
 
     return { x: from.x + (to.x - from.x) * frac, z: from.z + (to.z - from.z) * frac };
-  });
-};
-
-const getPathPoints = ({ count, anchors, distance = config.SPAWN_RADIUS }: PathShape): Point[] => {
-  // Опоры пути в координатах пола: у каждой опоры свой радиус, по умолчанию — distance формы.
-  const nodes = anchors.map((anchor) => getSpawnCirclePoint(anchor.angle, anchor.radius ?? distance));
-
-  if (nodes.length === 0) {
-    return [];
-  }
-
-  if (nodes.length === 1) {
-    return getIndices(count).map(() => ({ ...nodes[0] }));
-  }
-
-  // Длины прямых между опорами и общий путь.
-  const segments = nodes.slice(1).map((node, index) => Math.hypot(node.x - nodes[index].x, node.z - nodes[index].z));
-  const total = segments.reduce((sum, length) => sum + length, 0);
-
-  // count точек равными шагами ВДОЛЬ пути: первая в первой опоре, последняя — в последней.
-  return getIndices(count).map((index) => {
-    let rest = count === 1 ? 0 : (index / (count - 1)) * total;
-
-    for (let i = 0; i < segments.length; i++) {
-      if (rest <= segments[i] || i === segments.length - 1) {
-        const frac = segments[i] === 0 ? 0 : rest / segments[i];
-        const from = nodes[i];
-        const to = nodes[i + 1];
-
-        return { x: from.x + (to.x - from.x) * frac, z: from.z + (to.z - from.z) * frac };
-      }
-
-      rest -= segments[i];
-    }
-
-    return { ...nodes[nodes.length - 1] };
   });
 };
 
@@ -279,8 +228,6 @@ export const getShapePoints = (shape: Shape): Point[] => {
         return getRandomPoints(shape);
       case 'polygon':
         return getPolygonPoints(shape);
-      case 'path':
-        return getPathPoints(shape);
       case 'perimeter':
         return getPerimeterPoints(shape);
     }

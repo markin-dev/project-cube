@@ -32,7 +32,7 @@ describe('buildWaveSchedule', () => {
   });
 
   it('delay и interval по умолчанию 0 — группа появляется разом', () => {
-    const wave: Wave = { name: 'тест', groups: [{ shape: { type: 'random', count: 4, angle: 0 } }] };
+    const wave: Wave = { name: 'тест', groups: [{ shape: { type: 'random', count: 4 } }] };
 
     const [group] = buildWaveSchedule(wave);
 
