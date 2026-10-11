@@ -30,7 +30,8 @@ type BaseShape = {
 // Кольцо: первый враг на angle, остальные по часовой. Дуга: angle — её середина, крайние точки включены.
 // Отрицательный arc — тот же обход, но против часовой.
 // distance — на каком удалении от центра арены лежит окружность (по умолчанию SPAWN_RADIUS): меньше —
-// ближе к игроку (внутренний обстрел), больше — дальше (осада). Есть у всех форм.
+// ближе к игроку (внутренний обстрел), больше — дальше (осада). Есть у всех форм, кроме random —
+// у него точек нет «домашней» окружности: он сеет кольцо всей арены от SAFE_RADIUS до стены.
 type CircleShape = BaseShape & {
   type: 'circle';
   count: number;
@@ -39,14 +40,15 @@ type CircleShape = BaseShape & {
   distance?: number;
 };
 
-// «То тут то там»: случайные точки на окружности спавна.
-// angle и arc ограничивают сектор (например, angle: 0, arc: 90 — только сверху). По умолчанию весь круг.
+// «То тут то там»: случайные точки по всей арене РАВНОМЕРНО по площади, но вне безопасной зоны —
+// круга радиуса SAFE_RADIUS вокруг центра арены (там куб игрока). Это ОБЩЕЕ правило подборщика
+// мест, оно действует на все формы (см. src/spawn-placement.ts), здесь же формируется «домашнее»
+// кольцо random: от края зоны до стены арены с отступом PERIMETER_INSET — центр врага должен
+// остаться над полом, иначе он погибнет сразу (см. isEnemyOverArena).
+// Как и раньше, у random нет «домашней» окружности спавна, поэтому distance/angle/arc не работают.
 type RandomShape = BaseShape & {
   type: 'random';
   count: number;
-  angle?: number;
-  arc?: number;
-  distance?: number;
 };
 
 // Многоугольник: count точек вдоль ПЕРИМЕТРА правильного sides-угольника, вписанного в окружность
@@ -147,13 +149,25 @@ const getCirclePoints = ({
   return getIndices(count).map((index) => getSpawnCirclePoint(getAngle(index), distance));
 };
 
-const getRandomPoints = ({
-  count,
-  angle = getRandomAngle(),
-  arc = 360,
-  distance = config.SPAWN_RADIUS,
-}: RandomShape): Point[] =>
-  getIndices(count).map(() => getSpawnCirclePoint(angle - arc / 2 + Math.random() * arc, distance));
+const getRandomPoints = ({ count }: RandomShape): Point[] => {
+  // Кольцо спавна — от края безопасной зоны (общее правило подборщика) до стены арены с отступом.
+  const inner = config.SAFE_RADIUS;
+  const outer = config.ARENA_SIZE / 2 - config.PERIMETER_INSET;
+
+  // Защита от вырождения: если зона съела кольцо целиком — прижимаем к внешней границе
+  // с запасом в полметра, иначе корень из отрицательного числа дал бы NaN.
+  const innerClamped = Math.min(Math.max(0, inner), Math.max(0, outer - 0.5));
+
+  // Равномерное распределение по ПЛОЩАДИ кольца: направление — любое, квадрат радиуса —
+  // равномерная случайная, отсюда корень. Без корня точки скопились бы у внутреннего края,
+  // ведь площадь тонких колец растёт с радиусом.
+  return getIndices(count).map(() => {
+    const radius = Math.sqrt(innerClamped ** 2 + Math.random() * (outer ** 2 - innerClamped ** 2));
+    const direction = Math.random() * Math.PI * 2;
+
+    return { x: Math.cos(direction) * radius, z: Math.sin(direction) * radius };
+  });
+};
 
 const getPolygonPoints = ({
   count,

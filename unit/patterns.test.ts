@@ -73,15 +73,36 @@ describe('кольцо / дуга (circle)', () => {
 });
 
 describe('«то тут то там» (random)', () => {
+  const ARENA = 30;
+  const INSET = 1;
+  const SAFE = 6;
+  const OUTER = ARENA / 2 - INSET; // 14
+
   beforeEach(() => {
-    config.SPAWN_RADIUS = R;
+    config.ARENA_SIZE = ARENA;
+    config.PERIMETER_INSET = INSET;
+    config.SAFE_RADIUS = SAFE;
   });
 
-  it('все точки лежат на окружности спавна', () => {
-    const points = getShapePoints({ type: 'random', count: 15, angle: 0, arc: 90 });
+  it('все точки вне безопасной зоны и не дальше внешней границы (стена − inset)', () => {
+    const points = getShapePoints({ type: 'random', count: 60 });
 
-    expect(points).toHaveLength(15);
-    for (const p of points) expect(dist(p)).toBeCloseTo(R, 6);
+    expect(points).toHaveLength(60);
+    for (const p of points) {
+      const r = Math.hypot(p.x, p.z);
+      expect(r).toBeGreaterThanOrEqual(SAFE - 1e-9);
+      expect(r).toBeLessThanOrEqual(OUTER + 1e-9);
+    }
+  });
+
+  it('точки заполняют всё кольцо: есть и у внутреннего края, и у внешнего', () => {
+    // Равномерность по площади: при 200 точках точно найдутся и ближние к зоне, и дальние.
+    const points = getShapePoints({ type: 'random', count: 200 });
+    const radii = points.map((p) => Math.hypot(p.x, p.z));
+    const middle = (SAFE + OUTER) / 2;
+
+    expect(Math.min(...radii)).toBeLessThan(middle);
+    expect(Math.max(...radii)).toBeGreaterThan(middle);
   });
 });
 

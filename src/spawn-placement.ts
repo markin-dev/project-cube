@@ -3,6 +3,11 @@
 // проверяем, свободно ли место, и если нет — ищем ближайшее свободное: сначала рядом на полу, а если на полу
 // тесно — ярусом выше (враг появится в воздухе и упадёт на толпу), потом ещё выше и так до потолка смерти.
 //
+// Второй глобальный запрет — безопасная зона вокруг куба игрока (SAFE_RADIUS в config.ts): внутрь круга
+// такого радиуса не появляется НИКТО — ни при каком счётчике, тесноте и ярусе. Зона живёт здесь, а не в
+// формах: описание волны могло поставить точку внутрь (форма с малым distance, jitter), но подборщик
+// прижимает её к краю зоны и никогда не ищет внутри неё свободных мест.
+//
 // Скорость важна: в огромной волне за один кадр появляются сотни врагов, и каждый перебирает сотни мест.
 // Поэтому соседей ищем не перебором всех врагов, а через сетку (см. «Сетка соседей» ниже), а в самом
 // горячем месте — проверке одного места — почти не создаём временных объектов.
@@ -178,6 +183,18 @@ const getFloorCandidates = (point: Point, radius: number): Point[] => {
   return [point, ...rings];
 };
 
+// Точка на границе безопасной зоны: сдвигает точку наружу по направлению от центра арены до радиуса
+// radius. Точка ровно в центре — направление неизвестно, берём «верх» экрана (любое фиксированное).
+const projectToZoneRim = (point: Point, radius: number): Point => {
+  const distance = Math.hypot(point.x, point.z);
+
+  if (distance === 0) {
+    return { x: -Math.SQRT1_2 * radius, z: -Math.SQRT1_2 * radius };
+  }
+
+  return { x: (point.x / distance) * radius, z: (point.z / distance) * radius };
+};
+
 type SpawnRequest = {
   // Где враг должен появиться по описанию волны.
   point: Point;
@@ -205,7 +222,7 @@ export const createSpawnPlacer = (enemies: Enemies): SpawnPlacer => {
 
   // Возвращает исходную точку на полу, если там свободно, иначе ближайшее свободное место. Свободно — значит,
   // коробка нового врага не пересекается с коробками врагов и куба-игрока с зазором SPAWN_GAP. Если и до потолка
-  // места нет (огромная толпа), враг появится в исходной точке на полу, как и раньше.
+  // места нет (огромная толпа), враг появится в исходной точке (после прижатия к границе безопасной зоны).
   return ({ point, size }: SpawnRequest): THREE.Vector3 => {
     const gap = config.SPAWN_GAP;
 
@@ -214,11 +231,28 @@ export const createSpawnPlacer = (enemies: Enemies): SpawnPlacer => {
     const radius = (size * Math.SQRT2) / 2;
 
     // Точка за краем арены не годится: враг, чей центр за краем, сразу погибает. Оставляем запас в полкуба,
-    // чтобы и сам куб целиком был над полом. Исходную точку не проверяем — её задало описание волны.
+    // чтобы и сам куб целиком был над полом. Исходную точку на границы арены не проверяем — её задало
+    // описание волны.
     const halfArena = config.ARENA_SIZE / 2 - size / 2;
 
-    const floorCandidates = getFloorCandidates(point, radius).filter(
-      (candidate, index) => index === 0 || (Math.abs(candidate.x) <= halfArena && Math.abs(candidate.z) <= halfArena),
+    // Безопасная зона: радиус, внутрь которого не появляется никто ни при каких условиях. 0 — зоны нет.
+    // Если зона съела почти всю арену, ужимаем её до радиуса, при котором у стены ещё остаётся кольцо
+    // свободного пола (арена/2 − размер), иначе места для спавна не осталось бы вовсе.
+    const safeRadius = Math.min(Math.max(0, config.SAFE_RADIUS), Math.max(0, config.ARENA_SIZE / 2 - size));
+
+    // Вся коробка врага за границей зоны — только такие места годятся.
+    const isOutsideSafeZone = ({ x, z }: Point): boolean =>
+      safeRadius === 0 || Math.hypot(x, z) >= safeRadius + size / 2;
+
+    // Исходная точка внутри зоны — прижимаем наружу, к её границе: форма с малым distance или jitter
+    // могли поставить её внутрь, но внутри зоны не появляется никто ни при каком условии.
+    const spawnPoint = isOutsideSafeZone(point) ? point : projectToZoneRim(point, safeRadius + size / 2);
+
+    // Кандидаты: внутри безопасной зоны не годится ни один, даже исходная точка описания волны.
+    const floorCandidates = getFloorCandidates(spawnPoint, radius).filter(
+      (candidate, index) =>
+        (index === 0 || (Math.abs(candidate.x) <= halfArena && Math.abs(candidate.z) <= halfArena)) &&
+        isOutsideSafeZone(candidate),
     );
 
     // Ярусы по высоте: на полу (центр на половине роста) и выше — каждый следующий на рост врага плюс зазор.
@@ -245,6 +279,6 @@ export const createSpawnPlacer = (enemies: Enemies): SpawnPlacer => {
       }
     }
 
-    return occupy({ x: point.x, y: size / 2, z: point.z });
+    return occupy({ x: spawnPoint.x, y: size / 2, z: spawnPoint.z });
   };
 };

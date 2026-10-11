@@ -64,6 +64,7 @@ const SECTIONS: Section[] = [
     settings: [
       { key: 'ARENA_SIZE', label: 'Размер арены, м', min: 12, max: 600, step: 1, apply: 'reload' },
       { key: 'SPAWN_RADIUS', label: 'Радиус спавна, м', min: 3, max: 28, step: 0.5 },
+      { key: 'SAFE_RADIUS', label: 'Безопасная зона (радиус), м', min: 0, max: 14, step: 0.5, apply: 'nextWave' },
       { key: 'DEATH_WALL_HEIGHT', label: 'Высота границы, м', min: 0, max: 10, step: 0.1 },
       { key: 'DEATH_WALL_OPACITY', label: 'Непрозрачность границы', min: 0, max: 1, step: 0.05 },
       { key: 'DEATH_CEILING_HEIGHT', label: 'Потолок смерти, м', min: 2, max: 40, step: 0.5 },
