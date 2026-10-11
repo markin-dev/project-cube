@@ -45,8 +45,8 @@ describe('buildWaveSchedule', () => {
     const wave: Wave = {
       name: 'тест',
       groups: [
-        { shape: { type: 'line', count: 2, angle: 0 }, enemy: 'small' },
-        { shape: { type: 'cluster', count: 2, angle: 0 }, delay: 5, enemy: 'big' },
+        { shape: { type: 'circle', count: 2, angle: 0 }, enemy: 'small' },
+        { shape: { type: 'polygon', count: 2, angle: 0 }, delay: 5, enemy: 'big' },
       ],
     };
 

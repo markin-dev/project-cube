@@ -22,8 +22,9 @@ npm run dev
 - `shape` — **где** появляются враги:
   - `circle` — кольцо или дуга;
   - `random` — то тут то там;
-  - `line` — шеренга;
-  - `cluster` — кучка.
+  - `polygon` — правильный многоугольник (3+ сторон);
+  - `path` — ломаная через опоры;
+  - `perimeter` — квадрат по краю арены.
 
   Параметры форм описаны в `src/patterns.ts`.
 - `delay` — **когда** начинается группа: не позже стольких секунд от начала волны. Если все предыдущие
@@ -35,10 +36,10 @@ npm run dev
 
 ```ts
 {
-  name: 'С двух сторон',
+  name: 'Клещи',
   groups: [
-    { shape: { type: 'line', count: 4, angle: 90 } },
-    { shape: { type: 'line', count: 4, angle: 270 }, delay: 5 },
+    { shape: { type: 'circle', count: 3, angle: 90, arc: 60 } },
+    { shape: { type: 'circle', count: 3, angle: 270, arc: 60 }, delay: 2 },
   ],
 }
 ```

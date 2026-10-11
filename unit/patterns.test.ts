@@ -1,8 +1,8 @@
 // Юнит-тесты геометрии форм спавна (src/patterns.ts).
 //
 // Формы — чистые функции: по параметрам возвращают точки на полу. Единственный источник случайности —
-// угол по умолчанию и позиции внутри cluster/random, но даже там геометрические инварианты (все точки
-// лежат на окружности спавна / внутри радиуса кучки) выполняются всегда — тесты детерминированы.
+// угол по умолчанию и позиции внутри random, но даже там геометрические инварианты (все точки
+// лежат на окружности спавна / внутри сектора) выполняются всегда — тесты детерминированы.
 import { describe, expect, it, beforeEach } from 'vitest';
 import { config } from '../src/config';
 import { getShapePoints } from '../src/patterns';
@@ -69,72 +69,6 @@ describe('кольцо / дуга (circle)', () => {
     for (const p of points) expect(dist(p)).toBeCloseTo(distance, 6);
     expect(points[0].x).toBeCloseTo((-distance) * Math.SQRT1_2, 6);
     expect(points[0].z).toBeCloseTo((-distance) * Math.SQRT1_2, 6);
-  });
-});
-
-describe('шеренга (line)', () => {
-  beforeEach(() => {
-    config.SPAWN_RADIUS = R;
-    config.DEFAULT_LINE_WIDTH = 6;
-  });
-
-  it('середина ряда на окружности, вектор ряда длиной width', () => {
-    const width = 4;
-    const points = getShapePoints({ type: 'line', count: 3, angle: 0, width });
-
-    expect(points).toHaveLength(3);
-
-    // Центр ряда (средняя точка) — точка окружности спавна под углом 0 («вверх»).
-    expect(points[1].x).toBeCloseTo(screenUp.x, 6);
-    expect(points[1].z).toBeCloseTo(screenUp.z, 6);
-
-    // Ряд идёт поперёк направления на куб (единичный вектор) → расстояние между крайними = width.
-    const spanX = points[2].x - points[0].x;
-    const spanZ = points[2].z - points[0].z;
-    expect(Math.hypot(spanX, spanZ)).toBeCloseTo(width, 6);
-  });
-
-  it('без width берёт DEFAULT_LINE_WIDTH из конфига', () => {
-    const points = getShapePoints({ type: 'line', count: 3, angle: 0 });
-
-    const spanX = points[2].x - points[0].x;
-    const spanZ = points[2].z - points[0].z;
-    expect(Math.hypot(spanX, spanZ)).toBeCloseTo(config.DEFAULT_LINE_WIDTH, 6);
-  });
-
-  it('один враг — одна точка в центре ряда (без смещения)', () => {
-    const points = getShapePoints({ type: 'line', count: 1, angle: 0, width: 10 });
-
-    expect(points).toHaveLength(1);
-    expect(points[0].x).toBeCloseTo(screenUp.x, 6);
-    expect(points[0].z).toBeCloseTo(screenUp.z, 6);
-  });
-});
-
-describe('кучка (cluster)', () => {
-  beforeEach(() => {
-    config.SPAWN_RADIUS = R;
-    config.DEFAULT_CLUSTER_RADIUS = 3;
-  });
-
-  it('все точки внутри radius от центра кучки', () => {
-    const radius = 3;
-    const points = getShapePoints({ type: 'cluster', count: 30, angle: 0, radius });
-
-    expect(points).toHaveLength(30);
-    for (const p of points) {
-      expect(Math.hypot(p.x - screenUp.x, p.z - screenUp.z)).toBeLessThanOrEqual(radius + 1e-9);
-    }
-  });
-
-  it('без radius берёт DEFAULT_CLUSTER_RADIUS из конфига', () => {
-    const points = getShapePoints({ type: 'cluster', count: 20, angle: 0 });
-
-    for (const p of points) {
-      expect(Math.hypot(p.x - screenUp.x, p.z - screenUp.z)).toBeLessThanOrEqual(
-        config.DEFAULT_CLUSTER_RADIUS + 1e-9,
-      );
-    }
   });
 });
 
@@ -244,52 +178,6 @@ describe('путь (path)', () => {
 
     expect(points).toHaveLength(4);
     for (const p of points) expect(p).toEqual(points[0]);
-  });
-});
-
-describe('волна (wave)', () => {
-  beforeEach(() => {
-    config.SPAWN_RADIUS = R;
-    config.DEFAULT_WAVE_WIDTH = 6;
-    config.DEFAULT_WAVE_AMPLITUDE = 1.5;
-    config.DEFAULT_WAVE_PERIODS = 2;
-  });
-
-  // Единичные оси под angle = 0: across — радиальный (наружу), along — касательный (angle + 90°).
-  const across = { x: -Math.SQRT1_2, z: -Math.SQRT1_2 };
-  const along = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
-  const radial = (p: { x: number; z: number }): number => p.x * across.x + p.z * across.z;
-  const tangential = (p: { x: number; z: number }): number => p.x * along.x + p.z * along.z;
-
-  it('радиальная координата идёт по синусоиде: distance + amplitude·sin(2π·periods·t)', () => {
-    // t = 0, 0.25, 0.5, 0.75, 1; periods = 1 → sin = 0, 1, 0, −1, 0 → радиус 10, 12, 10, 8, 10.
-    const points = getShapePoints({ type: 'wave', count: 5, angle: 0, width: 8, amplitude: 2, periods: 1 });
-
-    expect(points).toHaveLength(5);
-    const expected = [10, 12, 10, 8, 10];
-    points.forEach((p, i) => expect(radial(p)).toBeCloseTo(expected[i], 6));
-  });
-
-  it('вдоль ряда точки равномерно от −width/2 до +width/2', () => {
-    const points = getShapePoints({ type: 'wave', count: 5, angle: 0, width: 8, amplitude: 2, periods: 1 });
-
-    const expected = [-4, -2, 0, 2, 4];
-    points.forEach((p, i) => expect(tangential(p)).toBeCloseTo(expected[i], 6));
-  });
-
-  it('один враг — точка в центре ряда (без смещений)', () => {
-    const points = getShapePoints({ type: 'wave', count: 1, angle: 0, width: 8, amplitude: 2 });
-
-    expect(points).toHaveLength(1);
-    expect(points[0].x).toBeCloseTo(screenUp.x, 6);
-    expect(points[0].z).toBeCloseTo(screenUp.z, 6);
-  });
-
-  it('без amplitude/periods берёт дефолты из конфига', () => {
-    const points = getShapePoints({ type: 'wave', count: 9, angle: 0 });
-
-    // t = 1/8: sin(2π·DEFAULT_WAVE_PERIODS·1/8) при periods = 2 → sin(π/2) = 1 → радиус R + амплитуда.
-    expect(radial(points[1])).toBeCloseTo(R + config.DEFAULT_WAVE_AMPLITUDE, 6);
   });
 });
 

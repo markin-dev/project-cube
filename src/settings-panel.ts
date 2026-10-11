@@ -69,8 +69,6 @@ const SECTIONS: Section[] = [
       { key: 'DEATH_CEILING_HEIGHT', label: 'Потолок смерти, м', min: 2, max: 40, step: 0.5 },
       { key: 'ENEMY_COUNT_MULTIPLIER', label: 'Множитель врагов', min: 1, max: 1000, step: 1, apply: 'nextWave' },
       { key: 'SPAWN_PER_FRAME', label: 'Появлений за кадр', min: 0, max: 500, step: 10 },
-      { key: 'DEFAULT_LINE_WIDTH', label: 'Ширина шеренги, м', min: 1, max: 20, step: 0.5, apply: 'nextWave' },
-      { key: 'DEFAULT_CLUSTER_RADIUS', label: 'Радиус кучки, м', min: 0.5, max: 6, step: 0.1, apply: 'nextWave' },
       { key: 'SPAWN_GAP', label: 'Зазор при появлении, м', min: 0, max: 2, step: 0.05 },
     ],
   },

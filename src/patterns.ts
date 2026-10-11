@@ -1,6 +1,13 @@
 // Паттерны — формы, по которым расставляются враги группы. Каждая форма — функция,
 // которая по параметрам возвращает список точек на полу. КОГДА враги появятся в этих точках,
 // решает не форма, а тайминг группы (см. src/waves.ts и src/schedule.ts).
+//
+// ВАЖНО про ёмкость форм (2026-10-11): подборщик места при спавне не даёт врагам наложиться
+// (см. src/spawn-placement.ts), поэтому у формы с фиксированным габаритом L есть потолок числа
+// точек ≈ L / зазор. Формы line (шеренга), cluster (кучка) и wave (волна) имели габарит 3–6 м
+// и при счётчике больше ~9 размазывались плейсером в толпу — они удалены. Оставшиеся формы
+// большие (габарит 15–28 м, потолок 40–120 точек); идея на будущее — формы-области, у которых
+// ёмкость растёт с площадью, а не с длиной контура (подробно — в docs/memory.md, Сессии 24–25).
 import { config } from './config';
 
 // Точка на полу. Высоту (y) задаёт сам враг при появлении.
@@ -42,25 +49,6 @@ type RandomShape = BaseShape & {
   distance?: number;
 };
 
-// Шеренга: враги в ряд поперёк направления на куб, центр ряда на окружности спавна под углом angle.
-// width — длина ряда. Порядок — по часовой (слева направо, если смотреть от куба наружу).
-type LineShape = BaseShape & {
-  type: 'line';
-  count: number;
-  angle?: number;
-  width?: number;
-  distance?: number;
-};
-
-// Кучка: враги случайно разбросаны в круге радиуса radius вокруг точки окружности спавна под углом angle.
-type ClusterShape = BaseShape & {
-  type: 'cluster';
-  count: number;
-  angle?: number;
-  radius?: number;
-  distance?: number;
-};
-
 // Многоугольник: count точек вдоль ПЕРИМЕТРА правильного sides-угольника, вписанного в окружность
 // радиуса distance и повёрнутого на angle. В отличие от circle (точки по дуге) — прямые рёбра.
 // sides — ЧИСЛО УГЛОВ (3 — треугольник, 6 — шестиугольник): форма универсальна, углов сколько угодно.
@@ -88,20 +76,6 @@ type PathShape = BaseShape & {
   distance?: number;
 };
 
-// Волна: как line — ряд поперёк направления на куб от точки окружности спавна под углом angle, но
-// каждая точка сдвинута по радиусу по синусоиде: получается волна. width — длина ряда, amplitude —
-// амплитуда колебания (по радиусу внутрь/наружу), periods — полных колебаний на длине width.
-// Порядок точек — вдоль волны от одного края к другому (при interval волна «расползается»).
-type WaveShape = BaseShape & {
-  type: 'wave';
-  count: number;
-  angle?: number;
-  width?: number;
-  amplitude?: number;
-  periods?: number;
-  distance?: number;
-};
-
 // Периметр: count точек вдоль КВАДРАТА арены (мировые оси, на экране — ромб, т.к. оси X/Z идут по
 // диагоналям). Замкнутый обход по часовой от «верхней» вершины. inset — отступ внутрь от стенки:
 // центр врага обязан остаться над ареной, иначе он погибнет сразу (см. isEnemyOverArena).
@@ -114,11 +88,8 @@ type PerimeterShape = BaseShape & {
 export type Shape =
   | CircleShape
   | RandomShape
-  | LineShape
-  | ClusterShape
   | PolygonShape
   | PathShape
-  | WaveShape
   | PerimeterShape;
 
 // ─── ПЕРЕВОД ЭКРАННОГО УГЛА В НАПРАВЛЕНИЕ НА ПОЛУ ───────────────────────────
@@ -184,48 +155,6 @@ const getRandomPoints = ({
 }: RandomShape): Point[] =>
   getIndices(count).map(() => getSpawnCirclePoint(angle - arc / 2 + Math.random() * arc, distance));
 
-const getLinePoints = ({
-  count,
-  angle = getRandomAngle(),
-  width = config.DEFAULT_LINE_WIDTH,
-  distance = config.SPAWN_RADIUS,
-}: LineShape): Point[] => {
-  const center = getSpawnCirclePoint(angle, distance);
-
-  // Ряд идёт поперёк направления на куб, то есть вдоль направления «угол + 90°» — по часовой.
-  const along = getScreenDirection(angle + 90);
-
-  // Смещение врага от центра ряда: от -width/2 до +width/2 равными шагами.
-  const getOffset = (index: number): number => (count === 1 ? 0 : -width / 2 + (index * width) / (count - 1));
-
-  return getIndices(count).map((index) => ({
-    x: center.x + along.x * getOffset(index),
-    z: center.z + along.z * getOffset(index),
-  }));
-};
-
-const getClusterPoints = ({
-  count,
-  angle = getRandomAngle(),
-  radius = config.DEFAULT_CLUSTER_RADIUS,
-  distance = config.SPAWN_RADIUS,
-}: ClusterShape): Point[] => {
-  const center = getSpawnCirclePoint(angle, distance);
-
-  // Случайная точка в круге: случайное направление и случайное расстояние.
-  // Корень из случайного числа нужен, чтобы точки ложились равномерно, а не скучивались у центра.
-  // Если враги появятся вплотную, физика сама их растолкает.
-  return getIndices(count).map(() => {
-    const direction = Math.random() * Math.PI * 2;
-    const dist = radius * Math.sqrt(Math.random());
-
-    return {
-      x: center.x + Math.cos(direction) * dist,
-      z: center.z + Math.sin(direction) * dist,
-    };
-  });
-};
-
 const getPolygonPoints = ({
   count,
   sides = config.DEFAULT_POLYGON_SIDES,
@@ -286,39 +215,6 @@ const getPathPoints = ({ count, anchors, distance = config.SPAWN_RADIUS }: PathS
   });
 };
 
-const getWavePoints = ({
-  count,
-  angle = getRandomAngle(),
-  width = config.DEFAULT_WAVE_WIDTH,
-  amplitude = config.DEFAULT_WAVE_AMPLITUDE,
-  periods = config.DEFAULT_WAVE_PERIODS,
-  distance = config.SPAWN_RADIUS,
-}: WaveShape): Point[] => {
-  const center = getSpawnCirclePoint(angle, distance);
-
-  // База — тот же поперечный ряд, что у line (вдоль «угол + 90°»), а колебание синусоиды идёт
-  // по радиусу (вдоль «угол + 0°»): волна «бежит» по окружности спавна, качаясь внутрь/наружу.
-  const along = getScreenDirection(angle + 90);
-  const across = getScreenDirection(angle);
-
-  if (count === 1) {
-    return [{ ...center }];
-  }
-
-  // t — положение точки вдоль ряда от 0 до 1. Синус нулевой на обоих краях, поэтому концы волны
-  // лежат на средней линии.
-  return getIndices(count).map((index) => {
-    const t = index / (count - 1);
-    const alongOffset = -width / 2 + t * width;
-    const waveOffset = amplitude * Math.sin(2 * Math.PI * periods * t);
-
-    return {
-      x: center.x + along.x * alongOffset + across.x * waveOffset,
-      z: center.z + along.z * alongOffset + across.z * waveOffset,
-    };
-  });
-};
-
 const getPerimeterPoints = ({ count, inset = config.PERIMETER_INSET }: PerimeterShape): Point[] => {
   // Половина арены минус отступ от стенки: центр врага должен остаться над полом, иначе он погибнет.
   const h = config.ARENA_SIZE / 2 - inset;
@@ -331,10 +227,12 @@ const getPerimeterPoints = ({ count, inset = config.PERIMETER_INSET }: Perimeter
     { x: h, z: h },
     { x: -h, z: h },
   ];
-  const edge = 2 * h; // каждое ребро квадрата одинаковой длины
+
+  // Длина стороны и полный периметр квадрата.
+  const edge = 2 * h;
   const total = edge * corners.length;
 
-  // Замкнутый обход: count точек равными шагами по периметру, последняя не совпадает с первой.
+  // count точек равными шагами вдоль периметра: от вершины вверх по часовой.
   return getIndices(count).map((index) => {
     const travelled = (index / count) * total;
     const corner = Math.floor(travelled / edge) % corners.length;
@@ -365,16 +263,10 @@ export const getShapePoints = (shape: Shape): Point[] => {
         return getCirclePoints(shape);
       case 'random':
         return getRandomPoints(shape);
-      case 'line':
-        return getLinePoints(shape);
-      case 'cluster':
-        return getClusterPoints(shape);
       case 'polygon':
         return getPolygonPoints(shape);
       case 'path':
         return getPathPoints(shape);
-      case 'wave':
-        return getWavePoints(shape);
       case 'perimeter':
         return getPerimeterPoints(shape);
     }
