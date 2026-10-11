@@ -98,7 +98,7 @@ export const WAVES: Wave[] = [
   },
   {
     name: 'Кольцо по часовой',
-    groups: [{ shape: { type: 'circle', count: 4, angle: 0, distance: 45 } }],
+    groups: [{ shape: { type: 'circle', count: 8, angle: 0 }, interval: 0.4 }],
   },
   {
     name: 'То тут то там',
