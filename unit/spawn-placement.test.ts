@@ -1,10 +1,11 @@
 // Юнит-тесты подбора места появления врага (src/spawn-placement.ts).
 //
 // Алгоритм гарантирует: новый враг не появится внутри существующего (иначе физика в первом же
-// шаге выталкивает его с огромной скоростью). Если исходная точка занята — ищем ближайшее
-// свободное рядом на полу, а если на полу тесно — ярусом выше. Второй инвариант — безопасная
-// зона вокруг куба игрока (SAFE_RADIUS): внутрь её радиуса не появляется никто ни при каком
-// условии — ни исходная точка, ни кандидаты поиска, ни ярусы.
+// шаге выталкивает его с огромной скоростью). Если исходная точка занята — сначала вверх: столб
+// над точкой до потолка смерти, и только потом вбок к ближайшему свободному месту на полу.
+// Так форма при большом множителе растёт вверх, а не распухает в стороны. Второй инвариант —
+// безопасная зона вокруг куба игрока (SAFE_RADIUS): внутрь её радиуса не появляется никто ни при
+// каком условии — ни исходная точка, ни кандидаты поиска, ни ярусы.
 //
 // Врага описываем заглушкой { body: { translation, rotation }, kind: { size } }: подборщику
 // нужны только позиция центра и поворот (тут — единичный кватернион) плюс размер типа.
@@ -62,24 +63,61 @@ describe('подбор места появления', () => {
     expect(position.y).toBeCloseTo(SIZE / 2, 5);
   });
 
-  it('занятая точка: сдвигается на свободное место рядом и не пересекается с занятым', () => {
-    // Враг уже стоит ровно туда, куда хотим появиться.
+  it('занятая точка: враг появляется НАД ней ярусом выше, а не сдвигается вбок', () => {
+    // Враг уже стоит ровно туда, куда хотим появиться. Порядок поиска — «сначала вверх»: столб
+    // над точкой важнее бокового сдвига, иначе форма при множителе распухала бы в стороны.
     const existing = enemyAt(5, SIZE / 2, 5);
     const placer = createSpawnPlacer(toEnemies(existing));
 
     const position = placer({ point: { x: 5, z: 5 }, size: SIZE });
 
-    // Место либо сдвинуто, либо поднято — но коробки не пересекаются с зазором.
-    expect(boxesOverlap({ x: position.x, y: position.y, z: position.z }, { x: 5, y: SIZE / 2, z: 5 }, config.SPAWN_GAP)).toBe(false);
+    const layerStep = SIZE + config.SPAWN_GAP;
+    expect(position.x).toBeCloseTo(5, 5); // ровно над занятой точкой
+    expect(position.z).toBeCloseTo(5, 5);
+    expect(position.y).toBeCloseTo(SIZE / 2 + layerStep, 5); // первый ярус
+    expect(
+      boxesOverlap({ x: position.x, y: position.y, z: position.z }, { x: 5, y: SIZE / 2, z: 5 }, config.SPAWN_GAP),
+    ).toBe(false);
   });
 
-  it('подборщик занимает место: второй враг не встанет на первый', () => {
+  it('подборщик занимает место: повторные враги строятся столбом друг над другом', () => {
     const placer = createSpawnPlacer(toEnemies());
 
-    const first = placer({ point: { x: 0, z: 0 }, size: SIZE });
-    const second = placer({ point: { x: 0, z: 0 }, size: SIZE });
+    const positions = [0, 1, 2].map(() => placer({ point: { x: 0, z: 0 }, size: SIZE }));
+    const [first, second, third] = positions;
 
+    // Все трое в одной точке плана: столб растёт вверх, а не в стороны — это и есть
+    // «высокая фигура» при большом множителе.
+    for (const position of positions) {
+      expect(position.x).toBeCloseTo(0, 5);
+      expect(position.z).toBeCloseTo(0, 5);
+    }
+    expect(second.y).toBeCloseTo(first.y + SIZE + config.SPAWN_GAP, 5);
+    expect(third.y).toBeCloseTo(second.y + SIZE + config.SPAWN_GAP, 5);
+
+    // И коробки при этом не пересекаются.
     expect(boxesOverlap(first, second, config.SPAWN_GAP)).toBe(false);
+    expect(boxesOverlap(second, third, config.SPAWN_GAP)).toBe(false);
+  });
+
+  it('столб под точкой дошёл до потолка — только теперь враг уходит вбок', () => {
+    // Собираем столб из всех ярусов над точкой: потолок 10, рост 1 + зазор 0.15 → 8 ярусов.
+    const layerStep = SIZE + config.SPAWN_GAP;
+    const layersCount = Math.max(1, Math.floor((config.DEATH_CEILING_HEIGHT - SIZE) / layerStep) + 1);
+    const column = Array.from({ length: layersCount }, (_, layer) =>
+      enemyAt(5, SIZE / 2 + layer * layerStep, 5),
+    );
+    const placer = createSpawnPlacer(toEnemies(...column));
+
+    const position = placer({ point: { x: 5, z: 5 }, size: SIZE });
+
+    // Выше некуда — место ищем вбок, а исходная точка плана брошена.
+    expect(Math.hypot(position.x - 5, position.z - 5)).toBeGreaterThan(0);
+    // И это место не пересекается ни с одним членом столба.
+    for (const member of column) {
+      const { x, y, z } = member.body.translation();
+      expect(boxesOverlap({ x: position.x, y: position.y, z: position.z }, { x, y, z }, config.SPAWN_GAP)).toBe(false);
+    }
   });
 
   it('тесно на полу: враг поднимается ярусом выше, а не налезает на толпу', () => {

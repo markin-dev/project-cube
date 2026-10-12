@@ -243,8 +243,8 @@ const spawnScheduledEnemies = (delta: number): void => {
   // появления не меняются, только скорость выдачи. 0 — без лимита.
   const budget = config.SPAWN_PER_FRAME > 0 ? Math.max(1, Math.floor(config.SPAWN_PER_FRAME)) : Infinity;
 
-  // Точку из расписания сдвигаем к свободному месту, если там уже кто-то стоит, — рядом на полу или,
-  // если на полу тесно, ярусом выше (см. spawn-placement.ts). Подборщик мест строится один раз на шаг
+  // Точку из расписания двигаем к свободному месту, если там уже кто-то: сначала вверх столбом над ней,
+  // потом в стороны (см. spawn-placement.ts). Подборщик мест строится один раз на шаг
   // и сам учитывает врагов, которые появляются в этом же шаге.
   const placeEnemy = createSpawnPlacer(enemies);
   let remaining = budget;
