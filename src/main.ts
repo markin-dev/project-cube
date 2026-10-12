@@ -32,6 +32,7 @@ import {
   fireProjectiles,
   refreshProjectileColor,
   removeFarProjectiles,
+  runFireTimer,
   type Projectiles,
 } from './projectiles';
 import { createScene, refreshSceneLook } from './scene';
@@ -44,9 +45,10 @@ import { createSpeedSwitch } from './speed-switch';
 import { createSparks } from './sparks';
 import { WAVES } from './waves';
 
-// Сколько реального времени кадра учитываем максимум, с. После лага или возвращения на вкладку кадр
-// может длиться секунды — без ограничения игра «перемотала» бы их разом.
-const MAX_FRAME_TIME = 1 / 30;
+// Сколько реального времени кадра учитываем максимум, с. После возвращения на вкладку кадр может
+// длиться секунды — без ограничения игра «перемотала» бы их разом. Длинный кадр делится на шаги
+// (MAX_TIMESTEP), поэтому до 10 FPS игра идёт в реальном времени и замедляется только ниже.
+const MAX_FRAME_TIME = 0.1;
 
 // Самый длинный шаг симуляции, с. Слишком большой шаг «протащил» бы пулю сквозь врага, не заметив
 // попадания. При ускорении игровое время кадра делится на несколько шагов не длиннее этого.
@@ -313,14 +315,8 @@ const advanceWave = (): void => {
 
 // Раз в config.FIRE_INTERVAL секунд выпускаем залп: до config.PROJECTILE_COUNT снарядов — по одному
 // на разных ближайших врагов, которых летящие снаряды ещё не добьют (см. findTargets в projectiles.ts).
-// Если стрелять не в кого, отсчёт остаётся на нуле, и выстрел случится сразу, как только цель появится.
-const shoot = (delta: number): void => {
-  state.fireTimer -= delta;
-
-  if (state.fireTimer > 0) {
-    return;
-  }
-
+// Отсчёт и перенос остатка между шагами — runFireTimer в projectiles.ts.
+const fireVolley = (): boolean => {
   const targets = findTargets({
     enemies,
     projectiles,
@@ -328,23 +324,30 @@ const shoot = (delta: number): void => {
   });
 
   if (targets.length === 0) {
-    return;
+    return false;
   }
 
   // Залп — и один звук выстрела на весь залп.
   fireProjectiles({ world, scene, entities: projectiles, targets });
   sound.playShot();
-  state.fireTimer = config.FIRE_INTERVAL;
+
+  return true;
+};
+
+const shoot = (delta: number): void => {
+  state.fireTimer = runFireTimer({ timer: state.fireTimer, delta, fireVolley });
 };
 
 // Наносит урон врагу и показывает число урона чуть выше его полоски здоровья.
-// getWorldPosition — где полоска находится в мире (её собственная позиция задана относительно врага).
+// Точку берём у тела, а не у меша: меши догоняют тела раз в кадр, после всех шагов, и на ускорении
+// число появлялось бы там, где враг был в начале кадра. Высота полоски задана относительно врага.
 // isCrit — критическое ли попадание: число показывается другим цветом и крупнее.
-const hitEnemy = (enemy: Enemy, damage: number, isCrit: boolean): void => {
+const hitEnemy = ({ enemy, damage, isCrit }: { enemy: Enemy; damage: number; isCrit: boolean }): void => {
   damageEnemy(enemy, damage);
 
-  const position = enemy.hpBar.group.getWorldPosition(new THREE.Vector3());
-  position.y += config.DAMAGE_NUMBER_HEIGHT;
+  const { x, y, z } = enemy.body.translation();
+  const position = new THREE.Vector3(x, y + enemy.hpBar.group.position.y + config.DAMAGE_NUMBER_HEIGHT, z);
+
   showDamageNumber({ position, damage, isCrit, camera });
 };
 
@@ -385,7 +388,7 @@ const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
     return;
   }
 
-  hitEnemy(enemy, damage, isCrit);
+  hitEnemy({ enemy, damage, isCrit });
 
   // Звук попадания — только по живому врагу: по призраку урон не наносится, это не «попадание».
   sound.playHit();

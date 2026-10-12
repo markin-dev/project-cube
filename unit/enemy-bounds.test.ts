@@ -1,17 +1,19 @@
 // Юнит-тесты границ состояния врага (src/enemies.ts): где арена кончается и где враг погибает.
 //
-// Четыре чистых предиката без физики и браузера — они решают, жив ли враг ещё (границы смерти)
-// и куда целится пуля (упреждение прицела смотрит isEnemyOnFloor). Каждый читает только
-// body.translation() (плюс kind.size у isEnemyOnFloor), поэтому врага описываем минимальной
-// заглушкой { body: { translation }, kind: { size } } — меш/полоска/тело Rapier не нужны.
+// Три предиката границ смерти читают только body.translation(), поэтому врага описываем заглушкой
+// { body: { translation } }. Проверка опоры (isEnemySupported) выше пола спрашивает физику лучом —
+// для неё враг настоящий, тело Rapier в мире с полом.
+import RAPIER from '@dimforge/rapier3d-compat';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { ENEMY_GROUPS } from '../src/collision-groups';
 import { config } from '../src/config';
-import { isEnemyAboveCeiling, isEnemyBelowFloor, isEnemyOnFloor, isEnemyOverArena } from '../src/enemies';
+import { isEnemyAboveCeiling, isEnemyBelowFloor, isEnemyOverArena, isEnemySupported } from '../src/enemies';
 import type { Enemy } from '../src/enemies';
+import { createPhysics } from '../src/physics';
 
-// Заглушка врага: функции-предикаты трогают только translation() тела и size типа.
-const enemyAt = (x: number, y: number, z: number, size = 1): Pick<Enemy, 'body' | 'kind'> =>
-  ({ body: { translation: () => ({ x, y, z }) }, kind: { size } }) as unknown as Pick<Enemy, 'body' | 'kind'>;
+// Заглушка врага: функции-предикаты трогают только translation() тела.
+const enemyAt = (x: number, y: number, z: number): Pick<Enemy, 'body'> =>
+  ({ body: { translation: () => ({ x, y, z }) } }) as unknown as Pick<Enemy, 'body'>;
 
 describe('границы состояния врага', () => {
   beforeEach(() => {
@@ -27,18 +29,6 @@ describe('границы состояния врага', () => {
     expect(isEnemyOverArena(enemyAt(0, 0.5, -16))).toBe(false); // за краем по Z
   });
 
-  it('isEnemyOnFloor: на полу — да; в воздухе, под полом или за краем — нет', () => {
-    // Куб, лежащий на грани, держит центр на половине роста.
-    expect(isEnemyOnFloor(enemyAt(0, 0.5, 0))).toBe(true);
-
-    expect(isEnemyOnFloor(enemyAt(0, 5, 0))).toBe(false); // высоко — летит
-    expect(isEnemyOnFloor(enemyAt(0, -1, 0))).toBe(false); // под полом — сорвался
-    expect(isEnemyOnFloor(enemyAt(16, 0.5, 0))).toBe(false); // за краем арены — управления нет
-    // Центр на границе «на полу/летит»: size × 0.9 = 0.9 — ещё пол, выше 0.9 уже полёт.
-    expect(isEnemyOnFloor(enemyAt(0, 0.89, 0))).toBe(true);
-    expect(isEnemyOnFloor(enemyAt(0, 0.91, 0))).toBe(false);
-  });
-
   it('isEnemyAboveCeiling: центр поднялся выше потолка смерти', () => {
     expect(isEnemyAboveCeiling(enemyAt(0, 10.5, 0))).toBe(true); // DEATH_CEILING_HEIGHT = 10
     expect(isEnemyAboveCeiling(enemyAt(0, 5, 0))).toBe(false);
@@ -47,5 +37,30 @@ describe('границы состояния врага', () => {
   it('isEnemyBelowFloor: центр ушёл под верхнюю поверхность пола', () => {
     expect(isEnemyBelowFloor(enemyAt(0, -0.1, 0))).toBe(true);
     expect(isEnemyBelowFloor(enemyAt(0, 0.5, 0))).toBe(false); // стоит на полу
+  });
+});
+
+describe('isEnemySupported', () => {
+  beforeEach(() => {
+    config.ARENA_SIZE = 30;
+  });
+
+  it.each([
+    ['на полу', 0, 0.5, true],
+    ['на ребре: центр чуть ниже 0.9 роста', 0, 0.89, true],
+    ['над полом: центр чуть выше 0.9 роста', 0, 0.91, false],
+    ['под полом', 0, -1, false],
+    ['за краем арены', 16, 0.5, false],
+  ])('Должен определять опору врага %s', async (_, x, y, expected) => {
+    const { world } = await createPhysics();
+    const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, 0));
+
+    world.createCollider(RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5).setCollisionGroups(ENEMY_GROUPS), body);
+    world.step();
+
+    // Шаг сдвинул тело под гравитацией — возвращаем на проверяемую высоту.
+    body.setTranslation({ x, y, z: 0 }, true);
+
+    expect(isEnemySupported(world, { body, kind: { size: 1, mass: 1, hp: 40, color: '#ffffff' } })).toBe(expected);
   });
 });

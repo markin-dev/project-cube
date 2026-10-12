@@ -21,6 +21,8 @@ import {
   saveChanges,
 } from './config-storage';
 import { ENEMY_KIND_NAMES } from './enemies';
+import { watchNarrowScreen } from './layout';
+import { MIN_FIRE_INTERVAL } from './projectiles';
 import { SOUND_SETS, type Sound, type SoundType } from './sound';
 import { WAVES } from './waves';
 
@@ -62,7 +64,7 @@ const SECTIONS: Section[] = [
   {
     title: 'Арена и волны',
     settings: [
-      { key: 'ARENA_SIZE', label: 'Размер арены, м', min: 12, max: 600, step: 1, apply: 'reload' },
+      { key: 'ARENA_SIZE', label: 'Размер арены, м', min: 12, max: 60, step: 1, apply: 'reload' },
       { key: 'SAFE_RADIUS', label: 'Безопасная зона (радиус), м', min: 0, max: 14, step: 0.5, apply: 'nextWave' },
       { key: 'DEATH_WALL_HEIGHT', label: 'Высота границы, м', min: 0, max: 10, step: 0.1 },
       { key: 'DEATH_WALL_OPACITY', label: 'Непрозрачность границы', min: 0, max: 1, step: 0.05 },
@@ -76,7 +78,7 @@ const SECTIONS: Section[] = [
     title: 'Игрок и стрельба',
     settings: [
       { key: 'PLAYER_SIZE', label: 'Размер игрока, м', min: 0.3, max: 3, step: 0.1, apply: 'reload' },
-      { key: 'FIRE_INTERVAL', label: 'Пауза между выстрелами, с', min: 0.0001, max: 1, step: 0.01 },
+      { key: 'FIRE_INTERVAL', label: 'Пауза между выстрелами, с', min: MIN_FIRE_INTERVAL, max: 1, step: 0.01 },
       { key: 'PROJECTILE_COUNT', label: 'Снарядов за выстрел', min: 1, max: 20, step: 1 },
       { key: 'PROJECTILE_DAMAGE_MIN', label: 'Урон, мин', min: 1, max: 200, step: 1 },
       { key: 'PROJECTILE_DAMAGE_MAX', label: 'Урон, макс', min: 1, max: 200, step: 1 },
@@ -101,7 +103,7 @@ const SECTIONS: Section[] = [
     title: 'Враги',
     isWithEnemyKinds: true,
     settings: [
-      { key: 'ENEMY_SPEED', label: 'Скорость, м/с', min: -100, max: 8, step: 0.1 },
+      { key: 'ENEMY_SPEED', label: 'Скорость, м/с', min: 0, max: 8, step: 0.1 },
       { key: 'ENEMY_ACCELERATION', label: 'Ускорение, м/с²', min: 0, max: 40, step: 0.5 },
       { key: 'ENEMY_TANGENTIAL_DAMPING', label: 'Гашение боковой скорости, 1/с', min: 0, max: 5, step: 0.1 },
     ],
@@ -190,10 +192,6 @@ const KIND_TITLES: Record<EnemyKindName, string> = {
 
 const PANEL_TITLE = 'Настройки';
 const PANEL_WIDTH = 340;
-
-// Уже этой ширины (px) экран считаем узким: панель переезжает вниз. Экспортируем — переключатель скорости
-// (speed-switch.ts) на узком экране поднимается над панелью.
-export const NARROW_SCREEN_WIDTH = 700;
 
 const COPY_LABEL = 'Скопировать изменения';
 const COPIED_LABEL = 'Скопировано ✓';
@@ -319,18 +317,20 @@ export const createSettingsPanel = ({
   sound: Sound;
 }): SettingsPanel => {
   // closeFolders — все разделы изначально свёрнуты, чтобы панель не занимала пол-экрана.
-  // На узком экране (телефон) панель уже — чтобы между ней и краем оставался зазор.
-  const gui = new GUI({ title: PANEL_TITLE, width: Math.min(PANEL_WIDTH, window.innerWidth - 32), closeFolders: true });
+  const gui = new GUI({ title: PANEL_TITLE, closeFolders: true });
 
-  // Подписи у нас длинные — отдаём им больше половины ширины строки (переменная из стилей lil-gui).
+  // Ширина — PANEL_WIDTH, а на узком экране — с зазором 16 px от краёв. CSS-выражение пересчитывается
+  // само при повороте телефона и ресайзе окна (--width и --name-width — переменные из стилей lil-gui).
+  // Подписи у нас длинные — отдаём им больше половины ширины строки.
+  gui.domElement.style.setProperty('--width', `min(${PANEL_WIDTH}px, calc(100vw - 32px))`);
   gui.domElement.style.setProperty('--name-width', '55%');
 
   // На узком экране (телефон вертикально) панель почти во всю ширину и у верхнего края наезжала бы
   // на номер волны — прижимаем её к нижнему краю. Раскрытая, она растёт вверх.
-  if (window.innerWidth < NARROW_SCREEN_WIDTH) {
-    gui.domElement.style.top = 'auto';
-    gui.domElement.style.bottom = '0';
-  }
+  watchNarrowScreen((isNarrow: boolean): void => {
+    gui.domElement.style.top = isNarrow ? 'auto' : '';
+    gui.domElement.style.bottom = isNarrow ? '0' : '';
+  });
 
   addLegend(gui);
 

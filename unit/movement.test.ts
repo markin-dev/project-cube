@@ -123,6 +123,20 @@ describe('движение врагов (headless-Rapier)', () => {
     expect(damped.radial).toBeGreaterThan(0.7);
   });
 
+  it('Должен гасить откат после удара ускорением и трением, без компенсации трения', async () => {
+    const { world } = await createPhysics();
+    const enemy = makeEnemy(world, 5, SIZE / 2, 5);
+    const outward = 3 / Math.SQRT2;
+
+    // Удар отбросил врага от центра: 3 м/с наружу.
+    enemy.body.setLinvel({ x: outward, y: 0, z: outward }, true);
+    simulate(world, toEnemies(enemy), Math.round(0.25 / DT));
+
+    // Торможение a + μg ≈ 8.9 м/с²: за 0.25 с откат ещё не погашен (≈ −0.8 м/с).
+    // С лишней компенсацией было бы a + 2μg ≈ 14.8 м/с², и враг уже шёл бы к центру.
+    expect(speeds(enemy).radial).toBeLessThan(-0.3);
+  });
+
   it('враг на вершине кучи управляем, а в воздухе — нет (опора)', async () => {
     const { world } = await createPhysics();
 

@@ -1,8 +1,8 @@
-import RAPIER, { type ColliderHandle } from '@dimforge/rapier3d-compat';
+import RAPIER, { type ColliderHandle, type World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { PROJECTILE_GROUPS } from './collision-groups';
 import { config } from './config';
-import { isEnemyOnFloor, type Enemies, type Enemy } from './enemies';
+import { isEnemySupported, type Enemies, type Enemy } from './enemies';
 import { removeEntity, type Entities, type Entity, type EntityContext } from './entity';
 
 // Снаряд помнит, в какого врага его выпустили, — чтобы не стрелять во врага,
@@ -98,15 +98,24 @@ export const findTargets = ({
 
 const UP = new THREE.Vector3(0, 1, 0);
 
+// Куда и в кого целимся: физический мир (для проверки опоры), враг и точка вылета пули.
+type AimParams = {
+  world: World;
+  enemy: Pick<Enemy, 'body' | 'kind'>;
+  muzzle: THREE.Vector3;
+};
+
 // Где окажется враг к моменту, когда до него долетит пуля, — для упреждения.
 // Учитываем только смещение ПОПЕРЁК линии выстрела: вбок и вверх-вниз, включая падение под гравитацией,
-// если враг в воздухе (путь падения за время t — g·t²/2). Движение вдоль линии выстрела упреждать
-// не нужно: враг, бегущий к кубу или отлетающий от него, всё равно остаётся на пути пули. А скорость
-// вдоль линии как раз сильнее всего дёргается от попаданий: сразу после удара враг летит назад, но тут же
-// снова идёт к кубу, и упреждение по ней только уводило бы пули ему за спину.
+// если под врагом нет опоры (путь падения за время t — g·t²/2). Враг на вершине кучи опирается на соседа
+// и не падает — без этой проверки прогноз опускал бы его на пол, и пули доставались бы нижнему.
+// Движение вдоль линии выстрела упреждать не нужно: враг, бегущий к кубу или отлетающий от него,
+// всё равно остаётся на пути пули. А скорость вдоль линии как раз сильнее всего дёргается от попаданий:
+// сразу после удара враг летит назад, но тут же снова идёт к кубу, и упреждение по ней только уводило бы
+// пули ему за спину.
 // Ниже пола прогноз не опускаем: центр врага не может быть ниже половины его размера.
 // Экспортируется для юнит-тестов (unit/projectile-motion.test.ts).
-export const predictPosition = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vector3 => {
+export const predictPosition = ({ world, enemy, muzzle }: AimParams): THREE.Vector3 => {
   const position = new THREE.Vector3().copy(enemy.body.translation());
   const lineOfFire = position.clone().sub(muzzle);
 
@@ -117,7 +126,7 @@ export const predictPosition = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vect
 
   const drift = new THREE.Vector3().copy(enemy.body.linvel()).multiplyScalar(flightTime);
 
-  if (!isEnemyOnFloor(enemy)) {
+  if (!isEnemySupported(world, enemy)) {
     drift.y -= (config.GRAVITY * flightTime * flightTime) / 2;
   }
 
@@ -131,8 +140,8 @@ export const predictPosition = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vect
 
 // Точка прицела: прогноз центра врага плюс смещение поперёк выстрела — постоянно вверх
 // и случайно по кругу вокруг этой точки (см. PROJECTILE_AIM_OFFSET_UP и PROJECTILE_AIM_SPREAD в config.ts).
-const getAimPoint = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vector3 => {
-  const center = predictPosition(enemy, muzzle);
+const getAimPoint = ({ world, enemy, muzzle }: AimParams): THREE.Vector3 => {
+  const center = predictPosition({ world, enemy, muzzle });
   const direction = center.clone().sub(muzzle).normalize();
 
   // Два направления поперёк выстрела: «вбок» — перпендикуляр к выстрелу и к вертикали,
@@ -162,6 +171,37 @@ const getAimPoint = (enemy: Enemy, muzzle: THREE.Vector3): THREE.Vector3 => {
 
 // ─── ВЫСТРЕЛ ─────────────────────────────────────────────────────────────────
 
+// Самая короткая пауза между залпами, с. Защищает от слишком частой стрельбы, даже если в конфиге
+// (например, в старом сохранении панели) записано меньше.
+export const MIN_FIRE_INTERVAL = 0.02;
+
+// Обратный отсчёт до залпа за один шаг симуляции; возвращает новое значение отсчёта.
+// Остаток переносится: залп, запоздавший на долю шага, сдвигает следующий на столько же раньше,
+// поэтому темп не зависит от длины шага — частоты кадров и скорости игры. Пауза короче шага —
+// несколько залпов за шаг. fireVolley возвращает false, если стрелять не в кого: тогда отсчёт
+// замирает на нуле, и залп случится, как только цель появится, — без накопленной очереди.
+export const runFireTimer = ({
+  timer,
+  delta,
+  fireVolley,
+}: {
+  timer: number;
+  delta: number;
+  fireVolley: () => boolean;
+}): number => {
+  const interval = Math.max(config.FIRE_INTERVAL, MIN_FIRE_INTERVAL);
+
+  const fireDueVolleys = (left: number): number => {
+    if (left > 0) {
+      return left;
+    }
+
+    return fireVolley() ? fireDueVolleys(left + interval) : 0;
+  };
+
+  return fireDueVolleys(timer - delta);
+};
+
 // Выпускает один снаряд из центра куба-игрока в точку прицела (getAimPoint) — по прямой,
 // в любую сторону, хоть вверх, если враг подлетел. Точка прицела своя у каждого снаряда.
 const fireOneProjectile = ({
@@ -171,7 +211,7 @@ const fireOneProjectile = ({
   target,
 }: EntityContext<Projectile> & { target: Target }): void => {
   const muzzle = new THREE.Vector3(0, config.PLAYER_SIZE / 2, 0);
-  const direction = getAimPoint(target.enemy, muzzle).sub(muzzle);
+  const direction = getAimPoint({ world, enemy: target.enemy, muzzle }).sub(muzzle);
   const size = config.PROJECTILE_SIZE;
 
   // Крит и урон бросаются ОДИН РАЗ при выстреле и запоминаются в снаряде: пока пуля летит,

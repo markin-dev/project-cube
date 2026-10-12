@@ -1,15 +1,10 @@
 // Переключатель скорости игры — кнопки в левом нижнем углу, отдельно от панели настроек.
 // Сама скорость применяется в игровом цикле (main.ts): игровое время кадра умножается на выбранную скорость.
-import { NARROW_SCREEN_WIDTH } from './settings-panel';
+import { keepAboveSettingsPanel } from './layout';
 
 // Скорости на выбор: 0 — пауза, 1 — обычная, больше — ускорение, меньше — замедление.
 const SPEEDS = [0, 0.5, 1, 2, 4, 8];
 const DEFAULT_SPEED = 1;
-
-// Отступ от нижнего края. На узком экране внизу лежит свёрнутая шапка панели настроек —
-// поднимаем переключатель над ней.
-const BOTTOM_OFFSET = 16;
-const NARROW_SCREEN_BOTTOM_OFFSET = 48;
 
 const getSpeedLabel = (speed: number): string => (speed === 0 ? '⏸' : `×${speed}`);
 
@@ -30,7 +25,6 @@ const setButtonLook = (button: HTMLButtonElement, isSelected: boolean): void => 
 
 // Создаёт переключатель и сразу выбирает обычную скорость. onChange вызывается при каждом выборе.
 export const createSpeedSwitch = ({ onChange }: { onChange: (speed: number) => void }): SpeedSwitch => {
-  const isNarrowScreen = window.innerWidth < NARROW_SCREEN_WIDTH;
   const container = document.createElement('div');
 
   // z-index: 2 — поверх экрана конца игры (у него 1): скорость можно переключить и после поражения.
@@ -39,7 +33,6 @@ export const createSpeedSwitch = ({ onChange }: { onChange: (speed: number) => v
   container.style.cssText = `
     position: fixed;
     left: 16px;
-    bottom: ${isNarrowScreen ? NARROW_SCREEN_BOTTOM_OFFSET : BOTTOM_OFFSET}px;
     z-index: 2;
     display: flex;
     flex-wrap: wrap;
@@ -79,6 +72,8 @@ export const createSpeedSwitch = ({ onChange }: { onChange: (speed: number) => v
     onChange(speed);
   };
 
+  // На узком экране внизу лежит свёрнутая шапка панели настроек — поднимаем переключатель над ней.
+  keepAboveSettingsPanel(container);
   container.append(...buttons);
   document.body.append(container);
   selectSpeed(DEFAULT_SPEED);

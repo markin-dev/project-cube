@@ -5,16 +5,11 @@
 //
 // Надпись — обычный HTML поверх canvas, как HUD: pointer-events: none — клики и касания
 // проходят сквозь неё к игре, поэтому счётчик не мешает перезапуску и не нужен в isUiTarget.
-import { NARROW_SCREEN_WIDTH } from './settings-panel';
+import { keepAboveSettingsPanel } from './layout';
 
 // Как часто обновлять число. Раз в полсекунды: значение не дёргается от одиночного
 // тормозящего кадра, но заметно реагирует на настоящую просадку.
 const UPDATE_INTERVAL = 0.5;
-
-// Отступ от краёв — как у переключателя скорости (см. speed-switch.ts). На узком экране
-// внизу лежит свёрнутая шапка панели настроек — поднимаем счётчик над ней.
-const BOTTOM_OFFSET = 16;
-const NARROW_SCREEN_BOTTOM_OFFSET = 48;
 
 export type FpsCounter = {
   // Вызывается каждый кадр игрового цикла с реальным временем кадра в секундах.
@@ -23,7 +18,6 @@ export type FpsCounter = {
 
 // Создаёт надпись и возвращает функцию подсчёта. Вызывается один раз при старте игры.
 export const createFpsCounter = (): FpsCounter => {
-  const isNarrowScreen = window.innerWidth < NARROW_SCREEN_WIDTH;
   const label = document.createElement('div');
   label.textContent = '— FPS';
 
@@ -32,7 +26,6 @@ export const createFpsCounter = (): FpsCounter => {
   label.style.cssText = `
     position: fixed;
     right: 16px;
-    bottom: ${isNarrowScreen ? NARROW_SCREEN_BOTTOM_OFFSET : BOTTOM_OFFSET}px;
     z-index: 2;
     padding: 6px 8px;
     border: 1px solid rgba(255, 255, 255, 0.3);
@@ -44,6 +37,8 @@ export const createFpsCounter = (): FpsCounter => {
     user-select: none;
   `;
 
+  // Отступ снизу — как у переключателя скорости: на узком экране над шапкой панели настроек.
+  keepAboveSettingsPanel(label);
   document.body.append(label);
 
   // Кадры и реальное время с последнего обновления числа.
