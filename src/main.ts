@@ -36,7 +36,7 @@ import {
   type Projectiles,
 } from './projectiles';
 import { createScene, refreshSceneLook } from './scene';
-import { buildWaveSchedule, type GroupSchedule } from './schedule';
+import { buildWaveSchedule, countDueEvents, type GroupSchedule } from './schedule';
 import { createSettingsPanel } from './settings-panel';
 import { createSound } from './sound';
 import { createSoundSwitch } from './sound-switch';
@@ -221,19 +221,15 @@ const spawnScheduledEnemies = (delta: number): void => {
   state.waveTime += delta;
   startDueGroups();
 
-  // Наступившие события каждой начавшейся группы.
-  const dueByGroup = state.groups.map((group) => {
-    if (group.startTime === undefined) {
-      return [];
-    }
-
-    const elapsed = state.waveTime - group.startTime;
-
-    return group.events.slice(group.spawnedCount).filter(({ time }) => time <= elapsed);
-  });
+  // Сколько врагов каждой группы пора выпустить: наступившие события минус уже выпущенные.
+  const dueCounts = state.groups.map((group) =>
+    group.startTime === undefined
+      ? 0
+      : countDueEvents(group.events, state.waveTime - group.startTime) - group.spawnedCount,
+  );
 
   // Если появляться некому — выходим, не строя сетку для поиска мест.
-  if (dueByGroup.every((dueEvents) => dueEvents.length === 0)) {
+  if (dueCounts.every((dueCount) => dueCount === 0)) {
     return;
   }
 
@@ -252,17 +248,14 @@ const spawnScheduledEnemies = (delta: number): void => {
   let remaining = budget;
 
   for (const [index, group] of state.groups.entries()) {
-    const dueEvents = dueByGroup[index];
-
     // Бюджет исчерпан — остальные группы (и остаток этой) появятся в следующем шаге.
     if (remaining <= 0) {
       break;
     }
 
-    const spawnCount = Math.min(dueEvents.length, remaining);
+    const spawnCount = Math.min(dueCounts[index], remaining);
 
-    for (let eventIndex = 0; eventIndex < spawnCount; eventIndex++) {
-      const event = dueEvents[eventIndex];
+    for (const event of group.events.slice(group.spawnedCount, group.spawnedCount + spawnCount)) {
       const position = placeEnemy({ point: event, size: config.ENEMY_KINDS[event.kindName].size });
 
       spawnEnemy({ world, scene, entities: enemies, position, kindName: event.kindName });
@@ -563,6 +556,7 @@ renderer.setAnimationLoop((time: number): void => {
   syncCubeRotations(enemies);
   syncCubeRotations(corpses);
   turnHpBarsToCamera(enemies, camera);
+  sparks.sync();
   renderer.render(scene, camera);
 });
 

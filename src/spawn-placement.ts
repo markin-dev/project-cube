@@ -165,25 +165,25 @@ const isFreeInGrid = ({ grid, box, gap }: { grid: Grid; box: Box; gap: number })
 
 // ─── ПОИСК МЕСТА ─────────────────────────────────────────────────────────────
 
-// Точки поиска на полу: сама исходная точка, потом кольца вокруг неё — от ближнего к дальнему.
-// На кольце точки идут с шагом примерно в радиус врага (длина окружности / радиус). Каждое кольцо
-// начинаем с направления «от центра арены»: если свободно и там, и там, враг сдвинется скорее наружу,
-// чем ближе к игроку.
-const getFloorCandidates = (point: Point, radius: number): Point[] => {
+// Точки поиска на полу одного кольца: кольцо 0 — сама исходная точка, кольцо N — окружность радиуса
+// N × radius вокруг неё. На кольце точки идут с шагом примерно в radius (длина окружности / radius).
+// Кольцо начинаем с направления «от центра арены»: если свободно и там, и там, враг сдвинется скорее
+// наружу, чем ближе к игроку. Кольца строятся по одному и только когда ближние заняты: обычно место
+// находится в исходной точке, и остальные ~500 точек поиска не нужны.
+const getRingCandidates = ({ point, radius, ring }: { point: Point; radius: number; ring: number }): Point[] => {
+  if (ring === 0) {
+    return [point];
+  }
+
   const outwardAngle = Math.atan2(point.z, point.x);
+  const ringRadius = ring * radius;
+  const pointsCount = Math.ceil((2 * Math.PI * ringRadius) / radius);
 
-  const rings = getIndices(SEARCH_RINGS).flatMap((ring) => {
-    const ringRadius = (ring + 1) * radius;
-    const pointsCount = Math.ceil((2 * Math.PI * ringRadius) / radius);
+  return getIndices(pointsCount).map((index): Point => {
+    const angle = outwardAngle + (index / pointsCount) * Math.PI * 2;
 
-    return getIndices(pointsCount).map((index): Point => {
-      const angle = outwardAngle + (index / pointsCount) * Math.PI * 2;
-
-      return { x: point.x + Math.cos(angle) * ringRadius, z: point.z + Math.sin(angle) * ringRadius };
-    });
+    return { x: point.x + Math.cos(angle) * ringRadius, z: point.z + Math.sin(angle) * ringRadius };
   });
-
-  return [point, ...rings];
 };
 
 // Точка на границе безопасной зоны: сдвигает точку наружу по направлению от центра арены до радиуса
@@ -252,12 +252,10 @@ export const createSpawnPlacer = (enemies: Enemies): SpawnPlacer => {
     // поставить её внутрь, но внутри зоны не появляется никто ни при каком условии.
     const spawnPoint = isOutsideSafeZone(point) ? point : projectToZoneRim(point, safeRadius + size / 2);
 
-    // Кандидаты: внутри безопасной зоны не годится ни один, даже исходная точка описания волны.
-    const floorCandidates = getFloorCandidates(spawnPoint, radius).filter(
-      (candidate, index) =>
-        (index === 0 || (Math.abs(candidate.x) <= halfArena && Math.abs(candidate.z) <= halfArena)) &&
-        isOutsideSafeZone(candidate),
-    );
+    // Годится ли точка поиска: внутри безопасной зоны — ни одна, даже исходная точка описания волны.
+    const isAllowedCandidate = (candidate: Point, ring: number): boolean =>
+      (ring === 0 || (Math.abs(candidate.x) <= halfArena && Math.abs(candidate.z) <= halfArena)) &&
+      isOutsideSafeZone(candidate);
 
     // Ярусы по высоте: на полу (центр на половине роста) и выше — каждый следующий на рост врага плюс зазор.
     // Ярусов столько, сколько помещается под потолком смерти: выше него враг сразу погиб бы.
@@ -275,16 +273,26 @@ export const createSpawnPlacer = (enemies: Enemies): SpawnPlacer => {
     // в стороны — следующая точка поиска, и над ней снова столб. Возвращаем первую свободную позицию.
     // Внешний цикл — точки, внутренний — ярусы: именно это заставляет форму при большом множителе
     // расти ВВЕРХ, а не распухать в стороны; вбок уходим, только когда выше некуда (потолок смерти).
-    for (const { x, z } of floorCandidates) {
-      for (const layer of getIndices(layersCount)) {
-        const y = size / 2 + layer * layerStep;
+    const findFreePosition = (): (Point & { y: number }) | undefined => {
+      for (const ring of getIndices(SEARCH_RINGS + 1)) {
+        for (const candidate of getRingCandidates({ point: spawnPoint, radius, ring })) {
+          if (!isAllowedCandidate(candidate, ring)) {
+            continue;
+          }
 
-        if (isFreeInGrid({ grid, box: getCubeBox({ x, y, z, size }), gap })) {
-          return occupy({ x, y, z });
+          for (const layer of getIndices(layersCount)) {
+            const y = size / 2 + layer * layerStep;
+
+            if (isFreeInGrid({ grid, box: getCubeBox({ ...candidate, y, size }), gap })) {
+              return { ...candidate, y };
+            }
+          }
         }
       }
-    }
 
-    return occupy({ x: spawnPoint.x, y: size / 2, z: spawnPoint.z });
+      return undefined;
+    };
+
+    return occupy(findFreePosition() ?? { x: spawnPoint.x, y: size / 2, z: spawnPoint.z });
   };
 };

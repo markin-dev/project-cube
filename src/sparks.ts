@@ -9,7 +9,9 @@
 // (много искр при частых выстрелах) память и время обновления оставались ограничены.
 //
 // Искры живут в игровом времени (delta из updateGame): на паузе замирают, при ускорении игры
-// летят быстрее — как и всё остальное в сцене.
+// летят быстрее — как и всё остальное в сцене. Движение считается на каждом шаге симуляции (update),
+// а матрицы экземпляров пишутся раз в кадр перед отрисовкой (sync): на ускорении шагов за кадр
+// до восьми, и пересчитывать матрицы на каждом из них незачем.
 import * as THREE from 'three';
 import { config } from './config';
 import type { Enemy } from './enemies';
@@ -30,9 +32,14 @@ const SPARK_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
 // так крит-искры не отличить бы, не создавая второй меш.
 const SPARK_MATERIAL = new THREE.MeshBasicMaterial({ color: '#ffffff' });
 
-// Черновой объект для пересчёта матрицы искры: setMatrixAt принимает матрицу, а положение,
-// поворот и масштаб по отдельности лежат в Object3D. Один на весь модуль — как и сам InstancedMesh.
-const transform = new THREE.Object3D();
+// Черновые объекты для матрицы искры (положение + поворот + масштаб) — одни на весь модуль,
+// чтобы не создавать новые на каждую искру в каждом кадре.
+const MATRIX = new THREE.Matrix4();
+const SCALE = new THREE.Vector3();
+const EULER = new THREE.Euler();
+
+// Матрица с масштабом 0 вырождается в точку и не рисуется — так прячем погасшие искры.
+const HIDDEN_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
 
 // Одна искра: где она, куда летит, сколько уже прожила и как повёрнута.
 type Spark = {
@@ -52,7 +59,7 @@ type Spark = {
 
   // Случайный поворот, заданный один раз при рождении: без него все кубики выглядели бы
   // выровненными по осям мира, как копии одной и той же искры.
-  orientation: THREE.Euler;
+  orientation: THREE.Quaternion;
 };
 
 // Куда рождаются искры — параметр sparks.spawn.
@@ -73,9 +80,26 @@ export type SpawnParams = {
 
 export type Sparks = {
   spawn: (params: SpawnParams) => void;
+
+  // Движение и старение искр — на каждом шаге симуляции.
   update: (delta: number) => void;
+
+  // Перенос искр в матрицы InstancedMesh — раз в кадр, перед отрисовкой.
+  sync: () => void;
+
   clear: () => void;
   refreshColor: () => void;
+};
+
+// Сторона искры сейчас: 0 — полный размер, 1 — сжата до нуля на SPARKS_SHRINK долю жизни.
+// Ноль у shrink тоже возможен — тогда искра живёт в полный размер и исчезает разом.
+// Крит-искры крупнее в SPARKS_CRIT_SIZE_MULTIPLIER раз. Множители читаются в момент вызова,
+// поэтому правка в панели действует и на уже летящие искры.
+const getSparkScale = (spark: Spark): number => {
+  const lifeProgress = spark.age / spark.lifetime;
+  const sparkSize = config.SPARKS_SIZE * (spark.isCrit ? config.SPARKS_CRIT_SIZE_MULTIPLIER : 1);
+
+  return sparkSize * (1 - config.SPARKS_SHRINK * lifeProgress);
 };
 
 // Точка, от которой летят искры: поверхность куба врага, куда пришла пуля.
@@ -140,7 +164,7 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     age: 0,
     lifetime: 0,
     isCrit: false,
-    orientation: new THREE.Euler(),
+    orientation: new THREE.Quaternion(),
   }));
 
   const mesh = new THREE.InstancedMesh(SPARK_GEOMETRY, SPARK_MATERIAL, MAX_ALIVE_SPARKS);
@@ -159,13 +183,11 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
   // Очередной слот для новой искры.
   let cursor = 0;
 
-  // Прячет искру: матрица с масштабом 0 вырождается в точку и не рисуется.
+  // Изменились ли искры с прошлого sync: на паузе и без искр матрицы не трогаем.
+  let isDirty = false;
+
   const hide = (index: number): void => {
-    transform.position.set(0, 0, 0);
-    transform.rotation.set(0, 0, 0);
-    transform.scale.setScalar(0);
-    transform.updateMatrix();
-    mesh.setMatrixAt(index, transform.matrix);
+    mesh.setMatrixAt(index, HIDDEN_MATRIX);
   };
 
   // Пул пустой — прятать нечего, но матрицы нужно один раз обнулить иначе InstancedMesh
@@ -219,7 +241,9 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
       spark.age = 0;
       spark.lifetime = lifetime;
       spark.isCrit = isCrit;
-      spark.orientation.set(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2);
+      spark.orientation.setFromEuler(
+        EULER.set(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2),
+      );
 
       // Цвет этой искры: базовый цвет попадания уже в baseColor, копируем в её instanceColor.
       mesh.setColorAt(index, baseColor);
@@ -229,6 +253,8 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     if (mesh.instanceColor) {
       mesh.instanceColor.needsUpdate = true;
     }
+
+    isDirty = true;
   };
 
   const update = (delta: number): void => {
@@ -236,12 +262,9 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
       return;
     }
 
-    // Конфиг на этот кадр читаем один раз — внутри цикла он не меняется.
+    // Конфиг на этот шаг читаем один раз — внутри цикла он не меняется.
     const gravity = config.GRAVITY * config.SPARKS_GRAVITY_SCALE;
     const damping = 1 / (1 + config.SPARKS_DAMPING * delta);
-    const size = config.SPARKS_SIZE;
-    const critSizeMultiplier = config.SPARKS_CRIT_SIZE_MULTIPLIER;
-    const shrink = config.SPARKS_SHRINK;
 
     for (let index = 0; index < usedSlots; index++) {
       const spark = sparks[index];
@@ -268,31 +291,34 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
       spark.velocity.multiplyScalar(damping);
       spark.position.addScaledVector(spark.velocity, delta);
 
-      // Размер в момент жизни: 0 — полный, 1 — сжат до нуля на SPARKS_SHRINK долю жизни.
-      // Ноль у shrink тоже возможен — тогда искра живёт в полный размер и исчезает разом.
-      // Крит-искры крупнее в SPARKS_CRIT_SIZE_MULTIPLIER раз — множитель читается каждый кадр,
-      // поэтому правка в панели действует и на уже летящие искры.
-      const lifeProgress = spark.age / spark.lifetime;
-      const sparkSize = size * (spark.isCrit ? critSizeMultiplier : 1);
-      const scale = sparkSize * (1 - shrink * lifeProgress);
-
       // Искра не проваливается под пол: центр держим на половине её текущего размера
       // и гасим вертикальную скорость — отскоков от пола не делаем, искры не мячи.
-      const half = scale / 2;
+      const half = getSparkScale(spark) / 2;
 
       if (spark.position.y < half) {
         spark.position.y = half;
         spark.velocity.y = 0;
       }
+    }
 
-      transform.position.copy(spark.position);
-      transform.rotation.copy(spark.orientation);
-      transform.scale.setScalar(scale);
-      transform.updateMatrix();
-      mesh.setMatrixAt(index, transform.matrix);
+    isDirty = true;
+  };
+
+  const sync = (): void => {
+    if (!isDirty) {
+      return;
+    }
+
+    for (let index = 0; index < usedSlots; index++) {
+      const spark = sparks[index];
+
+      if (spark.alive) {
+        mesh.setMatrixAt(index, MATRIX.compose(spark.position, spark.orientation, SCALE.setScalar(getSparkScale(spark))));
+      }
     }
 
     mesh.instanceMatrix.needsUpdate = true;
+    isDirty = false;
   };
 
   const clear = (): void => {
@@ -304,6 +330,7 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     usedSlots = 0;
     cursor = 0;
     mesh.instanceMatrix.needsUpdate = true;
+    isDirty = false;
   };
 
   // Перекрашивает живые искры по текущему конфигу — вызывается, когда цвет меняют в панели настроек.
@@ -329,5 +356,5 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     }
   };
 
-  return { spawn, update, clear, refreshColor };
+  return { spawn, update, sync, clear, refreshColor };
 };

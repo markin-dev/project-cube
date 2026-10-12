@@ -7,7 +7,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { config, type EnemyKindName } from '../src/config';
 import { ENEMY_KIND_NAMES } from '../src/enemies';
-import { buildWaveSchedule } from '../src/schedule';
+import { buildWaveSchedule, countDueEvents, type SpawnEvent } from '../src/schedule';
 import type { Wave } from '../src/waves';
 
 describe('buildWaveSchedule', () => {
@@ -81,5 +81,23 @@ describe('buildWaveSchedule', () => {
     for (const e of group.events) {
       expect(ENEMY_KIND_NAMES as EnemyKindName[]).toContain(e.kindName);
     }
+  });
+});
+
+const FAKE_EVENTS: SpawnEvent[] = [0, 0.5, 1, 1, 2].map((time) => ({ x: 10, z: 0, time, kindName: 'tiny' }));
+
+describe('countDueEvents', () => {
+  it.each([
+    [-1, 0],
+    [0, 1],
+    [0.7, 2],
+    [1, 4],
+    [5, 5],
+  ])('Должен к моменту %s с насчитать %s наступивших событий', (elapsed, expected) => {
+    expect(countDueEvents(FAKE_EVENTS, elapsed)).toBe(expected);
+  });
+
+  it('Должен вернуть 0 для пустой группы', () => {
+    expect(countDueEvents([], 10)).toBe(0);
   });
 });

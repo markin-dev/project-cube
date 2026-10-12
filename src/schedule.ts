@@ -34,3 +34,20 @@ export const buildWaveSchedule = (wave: Wave): GroupSchedule[] =>
       kindName: enemy ?? getRandomKindName(),
     })),
   }));
+
+// Сколько первых событий группы наступило к моменту elapsed (секунд от начала группы). События идут
+// по возрастанию времени, поэтому границу ищем двоичным поиском, а не перебором: в огромной группе
+// (большой множитель врагов) событий тысячи, а спрашивают об этом на каждом шаге.
+export const countDueEvents = (events: SpawnEvent[], elapsed: number): number => {
+  const search = (low: number, high: number): number => {
+    if (low >= high) {
+      return low;
+    }
+
+    const middle = Math.floor((low + high) / 2);
+
+    return events[middle].time <= elapsed ? search(middle + 1, high) : search(low, middle);
+  };
+
+  return search(0, events.length);
+};

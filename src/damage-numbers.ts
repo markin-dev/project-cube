@@ -4,6 +4,11 @@
 import * as THREE from 'three';
 import { config } from './config';
 
+// Сколько цифр может висеть на экране одновременно. Обычно их меньше десяти, но залп из 20 снарядов
+// на ускорении даёт сотни попаданий в секунду — каждая цифра это DOM-элемент с анимацией, и без
+// предела они тормозили бы страницу. Сверх предела новая цифра вытесняет самую старую.
+const MAX_ALIVE_DAMAGE_NUMBERS = 100;
+
 type DamageNumberParams = {
   // Точка в 3D-мире, над которой появится число.
   position: THREE.Vector3;
@@ -72,6 +77,10 @@ export const createDamageNumbers = (): ShowDamageNumber => {
       text-shadow: 0 0 3px black, 0 0 3px black;
       user-select: none;
     `;
+
+    if (layer.childElementCount >= MAX_ALIVE_DAMAGE_NUMBERS) {
+      layer.firstElementChild?.remove();
+    }
 
     layer.append(element);
 

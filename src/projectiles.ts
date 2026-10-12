@@ -45,13 +45,14 @@ const getDistanceToCenterSquared = (entity: Entity): number => {
   return x * x + z * z;
 };
 
-// Урон, который уже летит во врага: сумма уронов выпущенных в него снарядов, ещё не долетевших.
-// Урон каждого снаряда бросается при выстреле (см. rollDamage), поэтому сумма точная —
-// в отличие от оценки «количество × урон», которая при случайном уроне лишь приблизительна.
-const getIncomingDamage = (projectiles: Projectiles, enemyHandle: ColliderHandle): number =>
-  [...projectiles.values()]
-    .filter(({ targetHandle }) => targetHandle === enemyHandle)
-    .reduce((sum, { damage }) => sum + damage, 0);
+// Урон, который уже летит в каждого врага: handle врага → сумма уронов выпущенных в него снарядов.
+// Урон каждого снаряда бросается при выстреле (см. rollDamage), поэтому сумма точная.
+// Один проход по снарядам на весь выбор целей, а не отдельный проход для каждого врага.
+const getIncomingDamageByTarget = (projectiles: Projectiles): Map<ColliderHandle, number> =>
+  [...projectiles.values()].reduce(
+    (incoming, { targetHandle, damage }) => incoming.set(targetHandle, (incoming.get(targetHandle) ?? 0) + damage),
+    new Map<ColliderHandle, number>(),
+  );
 
 // Урон снаряда: случайное целое из [PROJECTILE_DAMAGE_MIN, PROJECTILE_DAMAGE_MAX].
 // Границы упорядочиваем на месте — если перепутать их в панели, диапазон всё равно будет
@@ -87,12 +88,17 @@ export const findTargets = ({
   enemies: Enemies;
   projectiles: Projectiles;
   count: number;
-}): Target[] =>
-  [...enemies]
-    .filter(([handle, enemy]) => enemy.hp > getIncomingDamage(projectiles, handle))
-    .map(([handle, enemy]) => ({ handle, enemy }))
-    .sort((first, second) => getDistanceToCenterSquared(first.enemy) - getDistanceToCenterSquared(second.enemy))
-    .slice(0, count);
+}): Target[] => {
+  const incomingDamage = getIncomingDamageByTarget(projectiles);
+
+  // Расстояние — один раз на врага: в сравнениях сортировки его пришлось бы читать из физики заново.
+  return [...enemies]
+    .filter(([handle, enemy]) => enemy.hp > (incomingDamage.get(handle) ?? 0))
+    .map(([handle, enemy]) => ({ target: { handle, enemy }, distance: getDistanceToCenterSquared(enemy) }))
+    .sort((first, second) => first.distance - second.distance)
+    .slice(0, count)
+    .map(({ target }) => target);
+};
 
 // ─── ПРИЦЕЛ ──────────────────────────────────────────────────────────────────
 

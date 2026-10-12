@@ -15,8 +15,9 @@
 // и общий мут (кнопка 🔇 рядом со скоростью); у каждого типа есть и свой мут (HIT_MUTED и т.д.).
 // Всё это — параметры конфига, их меняет панель настроек.
 //
-// Варианты рисуются офлайн-рендером один раз при старте: OfflineAudioContext считает звук быстрее
-// реального времени и не привязан к воспроизведению.
+// Варианты рисуются офлайн-рендером: OfflineAudioContext считает звук быстрее реального времени
+// и не привязан к воспроизведению. Набор рисуется один раз, при первом выборе: при старте —
+// только выбранные три (18 буферов из 90), остальные — когда их выберут в панели.
 //
 // Контекст Web Audio создаётся при загрузке, но браузер держит его на паузе до первого жеста
 // (правило autoplay): разблокируем по первому клику или нажатию. До этого звуки просто
@@ -500,6 +501,9 @@ export const createSound = (): Sound => {
   // Готовые варианты: «тип/набор» → его звуки. Появляются асинхронно, пока их нет — тип молчит.
   const variantsByKey = new Map<string, AudioBuffer[]>();
 
+  // Наборы, которые уже рисуются или нарисованы, — чтобы не запускать рендер дважды.
+  const requestedKeys = new Set<string>();
+
   // Индексы предыдущих вариантов — чтобы два звука одного типа подряд не совпали.
   const lastVariantIndexes: Record<SoundType, number> = { hit: -1, shot: -1, death: -1 };
 
@@ -526,18 +530,28 @@ export const createSound = (): Sound => {
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
-  // Офлайн-рендер всех наборов: 3 типа × 5 наборов × 6 вариантов = 90 буферов (~4 МБ RAM).
-  // Рендер асинхронный и быстрее реального времени — при старте он не задерживает.
-  for (const type of TYPES) {
-    for (const set of SETS_BY_TYPE[type]) {
-      renderSet(set)
-        .then((buffers: AudioBuffer[]): void => {
-          variantsByKey.set(setKey(type, set.id), buffers);
-        })
-        .catch((): void => {
-          // Офлайн-рендер не удался (старый браузер) — этот набор звучать не будет, игра работает.
-        });
+  // Рисует варианты набора, если их ещё нет. Рендер асинхронный и быстрее реального времени:
+  // выбранный в панели набор зазвучит через доли секунды.
+  const requestSet = (type: SoundType, setId: string): void => {
+    const key = setKey(type, setId);
+    const set = SETS_BY_TYPE[type].find((candidate) => candidate.id === setId);
+
+    if (!set || requestedKeys.has(key)) {
+      return;
     }
+
+    requestedKeys.add(key);
+    renderSet(set)
+      .then((buffers: AudioBuffer[]): void => {
+        variantsByKey.set(key, buffers);
+      })
+      .catch((): void => {
+        // Офлайн-рендер не удался (старый браузер) — этот набор звучать не будет, игра работает.
+      });
+  };
+
+  for (const type of TYPES) {
+    requestSet(type, setIds[type]);
   }
 
   applyVolume();
@@ -613,6 +627,7 @@ export const createSound = (): Sound => {
       }
 
       setIds[type] = value;
+      requestSet(type, value);
 
       // Счётчик вариантов обнуляем: в новом наборе свои — «не повторять предыдущий» начинается заново.
       lastVariantIndexes[type] = -1;
