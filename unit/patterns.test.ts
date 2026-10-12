@@ -18,12 +18,8 @@ const dist = (p: { x: number; z: number }): number => Math.hypot(p.x, p.z);
 const screenUp = { x: -R * Math.SQRT1_2, z: -R * Math.SQRT1_2 };
 
 describe('кольцо / дуга (circle)', () => {
-  beforeEach(() => {
-    config.SPAWN_RADIUS = R;
-  });
-
   it('count точек, все на окружности спавна, первый враг под заданным углом', () => {
-    const points = getShapePoints({ type: 'circle', count: 4, angle: 0 });
+    const points = getShapePoints({ type: 'circle', count: 4, angle: 0, distance: R });
 
     expect(points).toHaveLength(4);
     for (const p of points) expect(dist(p)).toBeCloseTo(R, 6);
@@ -35,7 +31,7 @@ describe('кольцо / дуга (circle)', () => {
 
   it('полное кольцо расставляет врагов поровну: шаг 360°/count', () => {
     // count=4, angle=0 → углы 0°, 90°, 180°, 270° (вверх, вправо, вниз, влево).
-    const points = getShapePoints({ type: 'circle', count: 4, angle: 0 });
+    const points = getShapePoints({ type: 'circle', count: 4, angle: 0, distance: R });
 
     expect(points[1].x).toBeCloseTo(R * Math.SQRT1_2, 6); // вправо
     expect(points[1].z).toBeCloseTo(-R * Math.SQRT1_2, 6);
@@ -46,7 +42,7 @@ describe('кольцо / дуга (circle)', () => {
   });
 
   it('дуга: count точек от края до края, все на окружности', () => {
-    const points = getShapePoints({ type: 'circle', count: 3, angle: 0, arc: 90 });
+    const points = getShapePoints({ type: 'circle', count: 3, angle: 0, arc: 90, distance: R });
 
     expect(points).toHaveLength(3);
     for (const p of points) expect(dist(p)).toBeCloseTo(R, 6);
@@ -55,14 +51,14 @@ describe('кольцо / дуга (circle)', () => {
   });
 
   it('один враг — одна точка под углом', () => {
-    const points = getShapePoints({ type: 'circle', count: 1, angle: 0 });
+    const points = getShapePoints({ type: 'circle', count: 1, angle: 0, distance: R });
 
     expect(points).toHaveLength(1);
     expect(points[0].x).toBeCloseTo(screenUp.x, 6);
     expect(points[0].z).toBeCloseTo(screenUp.z, 6);
   });
 
-  it('distance: кольцо на заданном удалении от центра, а не на SPAWN_RADIUS', () => {
+  it('distance: кольцо на заданном удалении от центра арены', () => {
     const distance = 5;
     const points = getShapePoints({ type: 'circle', count: 6, angle: 0, distance });
 
@@ -109,12 +105,11 @@ describe('«то тут то там» (random)', () => {
 
 describe('многоугольник (polygon)', () => {
   beforeEach(() => {
-    config.SPAWN_RADIUS = R;
     config.DEFAULT_POLYGON_SIDES = 4;
   });
 
   it('count = sides: точки в вершинах на окружности радиуса distance', () => {
-    const points = getShapePoints({ type: 'polygon', count: 3, sides: 3, angle: 0 });
+    const points = getShapePoints({ type: 'polygon', count: 3, sides: 3, angle: 0, distance: R });
 
     expect(points).toHaveLength(3);
     for (const p of points) expect(dist(p)).toBeCloseTo(R, 6);
@@ -123,7 +118,7 @@ describe('многоугольник (polygon)', () => {
   });
 
   it('count > sides: точки лежат на прямых рёбрах, не на дуге', () => {
-    const points = getShapePoints({ type: 'polygon', count: 8, sides: 4, angle: 0 });
+    const points = getShapePoints({ type: 'polygon', count: 8, sides: 4, angle: 0, distance: R });
 
     expect(points).toHaveLength(8);
 
@@ -135,7 +130,7 @@ describe('многоугольник (polygon)', () => {
   });
 
   it('меньше трёх сторон поднимается до треугольника', () => {
-    const points = getShapePoints({ type: 'polygon', count: 3, sides: 2, angle: 0 });
+    const points = getShapePoints({ type: 'polygon', count: 3, sides: 2, angle: 0, distance: R });
 
     expect(points).toHaveLength(3);
     for (const p of points) expect(dist(p)).toBeCloseTo(R, 6);
@@ -195,14 +190,10 @@ describe('периметр (perimeter)', () => {
 });
 
 describe('случайный разброс (jitter)', () => {
-  beforeEach(() => {
-    config.SPAWN_RADIUS = R;
-  });
-
   it('каждая точка сдвигается не дальше заданного радиуса', () => {
     const jitter = 0.5;
-    const base = getShapePoints({ type: 'circle', count: 12, angle: 0 });
-    const jittered = getShapePoints({ type: 'circle', count: 12, angle: 0, jitter });
+    const base = getShapePoints({ type: 'circle', count: 12, angle: 0, distance: R });
+    const jittered = getShapePoints({ type: 'circle', count: 12, angle: 0, distance: R, jitter });
 
     expect(jittered).toHaveLength(12);
     let moved = 0;
@@ -216,9 +207,9 @@ describe('случайный разброс (jitter)', () => {
   });
 
   it('jitter = 0 или отсутствие — точки как без разброса', () => {
-    const plain = getShapePoints({ type: 'circle', count: 8, angle: 0 });
+    const plain = getShapePoints({ type: 'circle', count: 8, angle: 0, distance: R });
 
-    expect(getShapePoints({ type: 'circle', count: 8, angle: 0, jitter: 0 })).toEqual(plain);
+    expect(getShapePoints({ type: 'circle', count: 8, angle: 0, distance: R, jitter: 0 })).toEqual(plain);
   });
 
   it('работает у любой формы (здесь — периметр)', () => {
@@ -237,7 +228,6 @@ describe('безопасная зона в описаниях волн', () => {
   beforeEach(() => {
     config.ARENA_SIZE = 30;
     config.SAFE_RADIUS = 8;
-    config.SPAWN_RADIUS = 11;
     config.PERIMETER_INSET = 1;
   });
 

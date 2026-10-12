@@ -55,9 +55,9 @@ export const WAVES: Wave[] = [
   // SPAWN_GAP хотя бы по одной оси (см. isFreeInGrid в src/spawn-placement.ts), а диагональный
   // ряд требует шаг ≥ √2 × (размер + SPAWN_GAP).
   {
-    // Кольцо из восьми на радиусе спавна: хорда между соседями ~7.6 — с запасом для любого типа.
+    // Кольцо из восьми на distance 11: хорда между соседями ~7.6 — с запасом для любого типа.
     name: 'Форма: круг',
-    groups: [{ shape: { type: 'circle', count: 8 } }],
+    groups: [{ shape: { type: 'circle', count: 8, distance: 11 } }],
   },
   {
     // Случайные точки по всей арене равномерно по площади — от края безопасной зоны (SAFE_RADIUS,
@@ -70,7 +70,7 @@ export const WAVES: Wave[] = [
     // окружности спавна. Точки на рёбрах здесь не ставим: середина ребра квадрата на distance 11
     // лежит на 7.78 от центра — внутри безопасной зоны, подборщик прижал бы её к краю.
     name: 'Форма: полигон',
-    groups: [{ shape: { type: 'polygon', count: 4 } }],
+    groups: [{ shape: { type: 'polygon', count: 4, distance: 11 } }],
   },
   {
     // Периметр: восемь точек по краю арены — по четырём углам и серединам сторон.
@@ -84,11 +84,11 @@ export const WAVES: Wave[] = [
   },
   {
     name: 'Дуга сверху',
-    groups: [{ shape: { type: 'circle', count: 4, angle: 0, arc: 90 } }],
+    groups: [{ shape: { type: 'circle', count: 4, distance: 11, angle: 0, arc: 90 } }],
   },
   {
     name: 'Кольцо по часовой',
-    groups: [{ shape: { type: 'circle', count: 8, angle: 0 }, interval: 0.4 }],
+    groups: [{ shape: { type: 'circle', count: 8, distance: 11, angle: 0 }, interval: 0.4 }],
   },
   {
     name: 'То тут то там',
@@ -97,23 +97,23 @@ export const WAVES: Wave[] = [
   {
     name: 'Клещи',
     groups: [
-      { shape: { type: 'circle', count: 3, angle: 90, arc: 60 } },
-      { shape: { type: 'circle', count: 3, angle: 270, arc: 60 }, delay: 2 },
+      { shape: { type: 'circle', count: 3, distance: 11, angle: 90, arc: 60 } },
+      { shape: { type: 'circle', count: 3, distance: 11, angle: 270, arc: 60 }, delay: 2 },
     ],
   },
   {
     name: 'Карусель против часовой',
-    groups: [{ shape: { type: 'circle', count: 10, angle: 180, arc: -360 }, interval: 0.6 }],
+    groups: [{ shape: { type: 'circle', count: 10, distance: 11, angle: 180, arc: -360 }, interval: 0.6 }],
   },
   {
     name: 'Финал',
     groups: [
-      { shape: { type: 'circle', count: 4, angle: 45 } },
-      { shape: { type: 'circle', count: 4, angle: 0 }, delay: 5 },
+      { shape: { type: 'circle', count: 4, distance: 11, angle: 45 } },
+      { shape: { type: 'circle', count: 4, distance: 11, angle: 0 }, delay: 5 },
       { shape: { type: 'random', count: 6 }, delay: 9, interval: 0.8 },
       // Замыкающая группа — треугольник по трём вершинам: точки на рёбрах заходили бы внутрь
       // безопасной зоны (центр ребра треугольника при distance 11 — на 5.5 от центра арены).
-      { shape: { type: 'polygon', count: 3, sides: 3, angle: 45 }, delay: 15 },
+      { shape: { type: 'polygon', count: 3, sides: 3, distance: 11, angle: 45 }, delay: 15 },
     ],
   },
   // ─── ДЕМО ВОРМ С НАСТРОЙКАМИ ────────────────────────────────────────────────
@@ -124,14 +124,14 @@ export const WAVES: Wave[] = [
   {
     // Универсальный полигон: sides — число углов (здесь 6, шестиугольник), можно любое от 3.
     name: 'Полигон',
-    groups: [{ shape: { type: 'polygon', count: 12, sides: 6, angle: 0 }, interval: 0.5 }],
+    groups: [{ shape: { type: 'polygon', count: 12, sides: 6, distance: 11, angle: 0 }, interval: 0.5 }],
   },
   {
     // Три кольца снаружи внутрь: каждое следующее ближе к игроку и повёрнуто на полшага,
     // чтобы точки внутренних колец попадали в промежутки внешних. delay запускает кольца
     // по очереди — вместе они выглядят как сжимающийся к игроку круг. Внутреннее кольцо на
-    // distance 9 меньше дефолтного 11, но всё ещё вне безопасной зоны (8 + половина брута
-    // = 8.75), так что подборщик ничего не прижимает.
+    // distance 9 ближе остальных колец (11 и 11.5), но всё ещё вне безопасной зоны (8 + половина
+    // брута = 8.75), так что подборщик ничего не прижимает.
     name: 'Сжимающиеся кольца',
     groups: [
       { shape: { type: 'circle', count: 12, distance: 14, angle: 0 } },

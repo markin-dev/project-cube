@@ -31,15 +31,17 @@ type BaseShape = {
 // Кольцо (arc = 360, по умолчанию) или дуга (arc < 360) на окружности спавна.
 // Кольцо: первый враг на angle, остальные по часовой. Дуга: angle — её середина, крайние точки включены.
 // Отрицательный arc — тот же обход, но против часовой.
-// distance — на каком удалении от центра арены лежит окружность (по умолчанию SPAWN_RADIUS): меньше —
-// ближе к игроку (внутренний обстрел), больше — дальше (осада). Есть у всех форм, кроме random —
-// у него точек нет «домашней» окружности: он сеет кольцо всей арены от SAFE_RADIUS до стены.
+// distance — на каком удалении от центра арены лежит окружность: меньше — ближе к игроку
+// (внутренний обстрел), больше — дальше (осада). Обязательный параметр: радиус спавна — не
+// глобальная настройка, а значение конкретной формы, его задают в описании волны (src/waves.ts).
+// Есть у всех форм, кроме random — у него точек нет «домашней» окружности: он сеет кольцо
+// всей арены от SAFE_RADIUS до стены.
 type CircleShape = BaseShape & {
   type: 'circle';
   count: number;
   angle?: number;
   arc?: number;
-  distance?: number;
+  distance: number;
 };
 
 // «То тут то там»: случайные точки по всей арене РАВНОМЕРНО по площади, но вне безопасной зоны —
@@ -63,7 +65,7 @@ type PolygonShape = BaseShape & {
   count: number;
   sides?: number;
   angle?: number;
-  distance?: number;
+  distance: number;
 };
 
 // Периметр: count точек вдоль КВАДРАТА арены (мировые оси, на экране — ромб, т.к. оси X/Z идут по
@@ -96,9 +98,9 @@ const getScreenDirection = (degrees: number): Point => {
   };
 };
 
-// Точка на окружности спавна под экранным углом. distance — радиус этой окружности (по умолчанию
-// SPAWN_RADIUS): уменьшает/увеличивает удалённость формы от центра арены.
-const getSpawnCirclePoint = (degrees: number, distance: number = config.SPAWN_RADIUS): Point => {
+// Точка на окружности спавна под экранным углом. distance — радиус этой окружности:
+// уменьшает/увеличивает удалённость формы от центра арены.
+const getSpawnCirclePoint = (degrees: number, distance: number): Point => {
   const direction = getScreenDirection(degrees);
 
   return { x: direction.x * distance, z: direction.z * distance };
@@ -115,7 +117,7 @@ const getCirclePoints = ({
   count,
   angle = getRandomAngle(),
   arc = 360,
-  distance = config.SPAWN_RADIUS,
+  distance,
 }: CircleShape): Point[] => {
   const isFullCircle = Math.abs(arc) >= 360;
 
@@ -158,7 +160,7 @@ const getPolygonPoints = ({
   count,
   sides = config.DEFAULT_POLYGON_SIDES,
   angle = getRandomAngle(),
-  distance = config.SPAWN_RADIUS,
+  distance,
 }: PolygonShape): Point[] => {
   // Число сторон — целое и не меньше треугольника.
   const n = Math.max(3, Math.round(sides));

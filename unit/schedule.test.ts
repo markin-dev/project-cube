@@ -18,7 +18,7 @@ describe('buildWaveSchedule', () => {
   it('повторяет delay группы, число врагов, их время и тип', () => {
     const wave: Wave = {
       name: 'тест',
-      groups: [{ shape: { type: 'circle', count: 3, angle: 0 }, delay: 1.5, interval: 0.5, enemy: 'tiny' }],
+      groups: [{ shape: { type: 'circle', count: 3, distance: 11, angle: 0 }, delay: 1.5, interval: 0.5, enemy: 'tiny' }],
     };
 
     const [group] = buildWaveSchedule(wave);
@@ -45,8 +45,8 @@ describe('buildWaveSchedule', () => {
     const wave: Wave = {
       name: 'тест',
       groups: [
-        { shape: { type: 'circle', count: 2, angle: 0 }, enemy: 'small' },
-        { shape: { type: 'polygon', count: 2, angle: 0 }, delay: 5, enemy: 'big' },
+        { shape: { type: 'circle', count: 2, distance: 11, angle: 0 }, enemy: 'small' },
+        { shape: { type: 'polygon', count: 2, distance: 11, angle: 0 }, delay: 5, enemy: 'big' },
       ],
     };
 
@@ -62,7 +62,7 @@ describe('buildWaveSchedule', () => {
   it('ENEMY_COUNT_MULTIPLIER уплотняет группу: врагов ×N, интервал ÷N', () => {
     config.ENEMY_COUNT_MULTIPLIER = 2;
 
-    const wave: Wave = { name: 'тест', groups: [{ shape: { type: 'circle', count: 3, angle: 0 }, interval: 1 }] };
+    const wave: Wave = { name: 'тест', groups: [{ shape: { type: 'circle', count: 3, distance: 11, angle: 0 }, interval: 1 }] };
 
     const [group] = buildWaveSchedule(wave);
 
@@ -73,7 +73,7 @@ describe('buildWaveSchedule', () => {
   });
 
   it('без enemy тип каждого врага — случайный из ENEMY_KIND_NAMES', () => {
-    const wave: Wave = { name: 'тест', groups: [{ shape: { type: 'circle', count: 10, angle: 0 } }] };
+    const wave: Wave = { name: 'тест', groups: [{ shape: { type: 'circle', count: 10, distance: 11, angle: 0 } }] };
 
     const [group] = buildWaveSchedule(wave);
 
