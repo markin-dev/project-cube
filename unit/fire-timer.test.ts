@@ -1,8 +1,8 @@
 // Юнит-тесты отсчёта до залпа (runFireTimer в src/projectiles.ts): темп стрельбы не должен зависеть
 // от длины шага симуляции, то есть от частоты кадров и выбранной скорости игры.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { config } from '../src/config';
-import { MIN_FIRE_INTERVAL, runFireTimer } from '../src/projectiles';
+import { config, MIN_FIRE_INTERVAL } from '../src/config';
+import { runFireTimer } from '../src/projectiles';
 
 const SIMULATED_SECONDS = 30;
 

@@ -5,8 +5,7 @@
 // время (номер врага × interval) и тип. Единственный источник случайности — тип врага, если он не задан
 // в описании группы; он всегда один из ENEMY_KIND_NAMES, что и проверяем.
 import { describe, expect, it, beforeEach } from 'vitest';
-import { config, type EnemyKindName } from '../src/config';
-import { ENEMY_KIND_NAMES } from '../src/enemies';
+import { config, ENEMY_KIND_NAMES, type EnemyKindName } from '../src/config';
 import { buildWaveSchedule, countDueEvents, type SpawnEvent } from '../src/schedule';
 import type { Wave } from '../src/waves';
 

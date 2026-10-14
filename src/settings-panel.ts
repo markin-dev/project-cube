@@ -11,7 +11,14 @@
 // Кроме параметров конфига есть раздел «Волны (отладка)» — ручной запуск волны: это действие,
 // а не настройка, поэтому оно не сохраняется и в «изменено: N» не считается (см. addWavePicker).
 import GUI from 'lil-gui';
-import { config, DEFAULT_CONFIG, type Config, type EnemyKindName } from './config';
+import {
+  config,
+  DEFAULT_CONFIG,
+  ENEMY_KIND_NAMES,
+  MIN_FIRE_INTERVAL,
+  type Config,
+  type EnemyKindName,
+} from './config';
 import {
   applyChanges,
   clearSavedChanges,
@@ -20,9 +27,7 @@ import {
   getChanges,
   saveChanges,
 } from './config-storage';
-import { ENEMY_KIND_NAMES } from './enemies';
 import { watchNarrowScreen } from './layout';
-import { MIN_FIRE_INTERVAL } from './projectiles';
 import { SOUND_SETS, type Sound, type SoundType } from './sound';
 import { WAVES } from './waves';
 

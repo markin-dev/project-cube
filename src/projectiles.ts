@@ -1,7 +1,7 @@
 import RAPIER, { type ColliderHandle, type World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { PROJECTILE_GROUPS } from './collision-groups';
-import { config } from './config';
+import { config, MIN_FIRE_INTERVAL } from './config';
 import { isEnemySupported, type Enemies, type Enemy } from './enemies';
 import { removeEntity, type Entities, type Entity, type EntityContext } from './entity';
 
@@ -176,10 +176,6 @@ const getAimPoint = ({ world, enemy, muzzle }: AimParams): THREE.Vector3 => {
 };
 
 // ─── ВЫСТРЕЛ ─────────────────────────────────────────────────────────────────
-
-// Самая короткая пауза между залпами, с. Защищает от слишком частой стрельбы, даже если в конфиге
-// (например, в старом сохранении панели) записано меньше.
-export const MIN_FIRE_INTERVAL = 0.02;
 
 // Обратный отсчёт до залпа за один шаг симуляции; возвращает новое значение отсчёта.
 // Остаток переносится: залп, запоздавший на долю шага, сдвигает следующий на столько же раньше,

@@ -15,5 +15,8 @@ export default defineConfig({
   test: {
     include: ['unit/**/*.test.ts'],
     environment: 'happy-dom',
+
+    // Перед каждым тестом конфиг возвращается к значениям из кода (см. unit/setup.ts).
+    setupFiles: ['unit/setup.ts'],
   },
 });

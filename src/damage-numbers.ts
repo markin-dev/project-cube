@@ -18,14 +18,13 @@ type DamageNumberParams = {
   // и увеличенным кеглем (DAMAGE_NUMBER_CRIT_FONT_SCALE). Флаг запомнен в снаряде при выстреле
   // (см. Projectile.isCrit) и донесён сюда из applyHit.
   isCrit?: boolean;
-
-  camera: THREE.Camera;
 };
 
 export type ShowDamageNumber = (params: DamageNumberParams) => void;
 
-// Создаёт слой для чисел и возвращает функцию, которая показывает одно число.
-export const createDamageNumbers = (): ShowDamageNumber => {
+// Создаёт слой для чисел и возвращает функцию, которая показывает одно число. camera — по ней точка
+// мира переводится в пиксели экрана.
+export const createDamageNumbers = ({ camera }: { camera: THREE.Camera }): ShowDamageNumber => {
   // Общий слой на весь экран. pointer-events: none — касания проходят сквозь него к игре.
   // overflow: hidden — числа у края экрана не создают полосы прокрутки.
   const layer = document.createElement('div');
@@ -39,7 +38,7 @@ export const createDamageNumbers = (): ShowDamageNumber => {
 
   document.body.append(layer);
 
-  return ({ position, damage, isCrit = false, camera }: DamageNumberParams): void => {
+  return ({ position, damage, isCrit = false }: DamageNumberParams): void => {
     // project переводит точку мира в координаты экрана камеры: от -1 до 1 по X (слева направо)
     // и по Y (снизу вверх). Пересчитываем их в пиксели окна, где Y растёт сверху вниз.
     // Canvas занимает всё окно, поэтому пиксели окна совпадают с пикселями картинки.

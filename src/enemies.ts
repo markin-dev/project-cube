@@ -1,7 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { ENEMY_GROUPS } from './collision-groups';
-import { config, type EnemyKind, type EnemyKindName } from './config';
+import { config, ENEMY_KIND_NAMES, type EnemyKind, type EnemyKindName } from './config';
 import type { CubeEntity, Entities, EntityContext } from './entity';
 import { createHpBar, setHpBarValue, turnToCamera, type HpBar } from './hp-bar';
 
@@ -15,14 +15,6 @@ export type Enemy = CubeEntity & {
 };
 
 export type Enemies = Entities<Enemy>;
-
-// Проверка «это строка — имя типа врага?». Возвращает boolean, а запись `name is EnemyKindName`
-// сообщает TypeScript: если проверка прошла, дальше name — именно EnemyKindName.
-const isEnemyKindName = (name: string): name is EnemyKindName => name in config.ENEMY_KINDS;
-
-// Имена всех типов врагов. Object.keys возвращает просто строки, фильтр с проверкой выше
-// превращает их в список имён типов, понятный TypeScript.
-export const ENEMY_KIND_NAMES = Object.keys(config.ENEMY_KINDS).filter(isEnemyKindName);
 
 // Геометрия — одна на всех врагов: куб со стороной 1, а нужный размер задаётся масштабом меша (scale).
 // Так размер типа можно менять в панели настроек, не пересоздавая геометрию.

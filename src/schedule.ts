@@ -1,5 +1,4 @@
-import { config, type EnemyKindName } from './config';
-import { ENEMY_KIND_NAMES } from './enemies';
+import { config, ENEMY_KIND_NAMES, type EnemyKindName } from './config';
 import { getShapePoints, type Point } from './patterns';
 import type { Wave } from './waves';
 

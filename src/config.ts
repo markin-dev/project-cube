@@ -50,7 +50,7 @@ export const DEFAULT_CONFIG = {
   // большие значения (слайдер «Множитель врагов» в панели) — для стресс-теста плотных волн.
   // С 2026-10-11 держим 1: при тестовом ×3 мелкие формы (шеренга, кучка, волна — 6-юнитные
   // полосы и круг радиуса 1.5) переполнялись: подборщик места переставлял врагов и размазывал
-  // все три формы в одинаковые пятна, они переставали отличаться визуально (см. docs/memory.md).
+  // все три формы в одинаковые пятна, они переставали отличаться визуально (см. docs/journal.md).
   ENEMY_COUNT_MULTIPLIER: 1,
 
   // Сколько врагов максимум появляется за один шаг симуляции. У огромных волн (множитель 200+)
@@ -347,6 +347,18 @@ export type Config = typeof DEFAULT_CONFIG;
 
 // Имя типа врага: 'tiny' | 'small' | 'normal' | 'big' | 'brute'.
 export type EnemyKindName = keyof Config['ENEMY_KINDS'];
+
+// Проверка «это строка — имя типа врага?». Запись `name is EnemyKindName` сообщает TypeScript:
+// если проверка прошла, дальше name — именно EnemyKindName.
+const isEnemyKindName = (name: string): name is EnemyKindName => name in DEFAULT_CONFIG.ENEMY_KINDS;
+
+// Имена всех типов врагов. Object.keys возвращает просто строки, фильтр с проверкой выше
+// превращает их в список имён типов, понятный TypeScript.
+export const ENEMY_KIND_NAMES = Object.keys(DEFAULT_CONFIG.ENEMY_KINDS).filter(isEnemyKindName);
+
+// Самая короткая пауза между залпами, с — нижняя граница FIRE_INTERVAL (ползунок панели и защита
+// в runFireTimer от слишком частой стрельбы, если в старом сохранении панели записано меньше).
+export const MIN_FIRE_INTERVAL = 0.02;
 
 // Рабочий конфиг: глубокая копия значений из кода (structuredClone копирует и вложенные объекты,
 // чтобы правки не задевали DEFAULT_CONFIG) плюс изменения, сохранённые панелью в прошлый раз.
