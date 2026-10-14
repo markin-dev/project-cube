@@ -1,9 +1,9 @@
 // Юнит-тесты расписания волн (src/schedule.ts): buildWaveSchedule превращает описание волны в группы
 // с задержкой и списком врагов (точка, время, тип); countDueEvents считает наступившие события.
 import { describe, expect, it } from 'vitest';
-import { config, ENEMY_KIND_NAMES } from '../src/config';
-import { buildWaveSchedule, countDueEvents, type SpawnEvent } from '../src/schedule';
-import type { Wave } from '../src/waves';
+import { config, ENEMY_KIND_NAMES } from '@/config';
+import { buildWaveSchedule, countDueEvents, type SpawnEvent } from '@/schedule';
+import type { Wave } from '@/waves';
 
 const FAKE_WAVE: Wave = {
   name: 'Тест',

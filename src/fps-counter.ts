@@ -42,21 +42,20 @@ export const createFpsCounter = (): FpsCounter => {
   document.body.append(label);
 
   // Кадры и реальное время с последнего обновления числа.
-  let frames = 0;
-  let elapsed = 0;
+  const sample = { frames: 0, elapsed: 0 };
 
   const tick = (delta: number): void => {
-    frames += 1;
-    elapsed += delta;
+    sample.frames += 1;
+    sample.elapsed += delta;
 
-    if (elapsed < UPDATE_INTERVAL) {
+    if (sample.elapsed < UPDATE_INTERVAL) {
       return;
     }
 
     // frames / elapsed — сколько кадров в среднем укладывалось в секунду.
-    label.textContent = `${Math.round(frames / elapsed)} FPS`;
-    frames = 0;
-    elapsed = 0;
+    label.textContent = `${Math.round(sample.frames / sample.elapsed)} FPS`;
+    sample.frames = 0;
+    sample.elapsed = 0;
   };
 
   return { tick };

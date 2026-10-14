@@ -1,8 +1,8 @@
 // Юнит-тесты единственной формы спавна random (src/patterns.ts): точки лежат в кольце от края
 // безопасной зоны (с запасом на половину самого крупного врага) до стены арены с отступом ARENA_INSET.
 import { describe, expect, it } from 'vitest';
-import { config } from '../src/config';
-import { getShapePoints, type Point } from '../src/patterns';
+import { config } from '@/config';
+import { getShapePoints, type Point } from '@/patterns';
 
 // Внутренняя и внешняя граница кольца спавна при текущем конфиге.
 const getRing = (): { inner: number; outer: number } => {

@@ -1,15 +1,10 @@
 // E2E звука (src/sound.ts) в настоящем Web Audio: выбор наборов и общий мут запоминаются в браузере,
 // неизвестные и устаревшие наборы отбрасываются.
-import { beforeEach, describe, expect, it } from 'vitest';
-import { createSound } from '../src/sound';
+import { describe, expect, it } from 'vitest';
+import { createSound } from '@/sound';
 
 const SETS_STORAGE_KEY = 'project-cube:sound-sets';
 const MUTED_STORAGE_KEY = 'project-cube:muted';
-
-beforeEach(() => {
-  localStorage.removeItem(SETS_STORAGE_KEY);
-  localStorage.removeItem(MUTED_STORAGE_KEY);
-});
 
 describe('наборы', () => {
   it('Должен запомнить выбранный набор в браузере', () => {

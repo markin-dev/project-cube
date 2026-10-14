@@ -1,9 +1,9 @@
 // Юнит-тесты общих операций с объектами (src/entity.ts): удаление из физики, сцены и списка,
 // уборка упавших и перенос положения и поворота тел на видимые объекты.
 import { describe, expect, it } from 'vitest';
-import { config } from '../src/config';
-import type { Enemies } from '../src/enemies';
-import { removeAllEntities, removeEntity, removeFallenEntities, syncCubeRotations, syncPositions } from '../src/entity';
+import { config } from '@/config';
+import type { Enemies } from '@/enemies';
+import { removeAllEntities, removeEntity, removeFallenEntities, syncCubeRotations, syncPositions } from '@/entity';
 import { addTestEnemy, createTestWorld, getHandle } from './fixtures';
 
 const { world, scene } = await createTestWorld();

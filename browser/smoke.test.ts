@@ -1,7 +1,7 @@
 // Smoke-тест: игра заводится импортом точки входа в настоящем chromium, игровой цикл
 // (физика + рендер + волны) идёт.
 import { expect, it } from 'vitest';
-import '../src/main';
+import '@/main';
 import { getEnemiesCount, getGame } from './helpers';
 
 it('Должен нарисовать игру на canvas', () => {

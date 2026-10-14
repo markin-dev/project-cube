@@ -1,6 +1,6 @@
 // Юнит-тесты полоски здоровья (src/hp-bar.ts): скрыта при полном здоровье, укорачивается с уроном.
 import { describe, expect, it } from 'vitest';
-import { createHpBar, setHpBarValue } from '../src/hp-bar';
+import { createHpBar, setHpBarValue } from '@/hp-bar';
 
 describe('createHpBar', () => {
   it('Должен создать скрытую полоску: у нового врага здоровье полное', () => {

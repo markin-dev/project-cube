@@ -61,6 +61,7 @@ export const createDamageNumbers = ({ camera }: { camera: THREE.Camera }): ShowD
     // Крит отличается цветом (алый вместо белого) и кеглем (в DAMAGE_NUMBER_CRIT_FONT_SCALE раз
     // крупнее) — так он выделяется на фоне потока обычных цифр. Тень и анимация — как у обычных.
     const color = isCrit ? config.DAMAGE_NUMBER_CRIT_COLOR : config.DAMAGE_NUMBER_COLOR;
+
     const fontSize = isCrit
       ? config.DAMAGE_NUMBER_FONT_SIZE * config.DAMAGE_NUMBER_CRIT_FONT_SCALE
       : config.DAMAGE_NUMBER_FONT_SIZE;

@@ -8,6 +8,9 @@ import { defineConfig } from 'vitest/config';
 // Окружение happy-dom даёт localStorage и минимальный DOM — их читают config.ts (сохранённые изменения
 // при загрузке), config-storage.ts и панель настроек. Физика — настоящий Rapier, он работает в Node.
 export default defineConfig({
+  // Алиас @/ → src/ — из paths в tsconfig.json.
+  resolve: { tsconfigPaths: true },
+
   test: {
     include: ['unit/**/*.test.ts'],
     environment: 'happy-dom',

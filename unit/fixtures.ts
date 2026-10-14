@@ -3,9 +3,9 @@
 import type { EventQueue, RigidBody, World } from '@dimforge/rapier3d-compat';
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
-import type { EnemyKindName } from '../src/config';
-import { spawnEnemy, type Enemies, type Enemy } from '../src/enemies';
-import { createPhysics } from '../src/physics';
+import type { EnemyKindName } from '@/config';
+import { spawnEnemy, type Enemies, type Enemy } from '@/enemies';
+import { createPhysics } from '@/physics';
 
 export type TestWorld = {
   world: World;

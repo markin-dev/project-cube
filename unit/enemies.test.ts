@@ -1,7 +1,7 @@
 // Юнит-тесты врагов (src/enemies.ts): границы арены и смерти, опора, появление, урон и движение
 // к центру на headless-Rapier. Шаг симуляции фиксированный — тесты детерминированы.
 import { describe, expect, it } from 'vitest';
-import { config } from '../src/config';
+import { config } from '@/config';
 import {
   damageEnemy,
   isEnemyAboveCeiling,
@@ -11,7 +11,7 @@ import {
   moveEnemies,
   type Enemies,
   type Enemy,
-} from '../src/enemies';
+} from '@/enemies';
 import { addTestEnemy, createTestBody, createTestWorld, type TestWorld } from './fixtures';
 
 const { world, scene } = await createTestWorld();
@@ -32,7 +32,7 @@ const simulate = ({
   isStepping?: boolean;
 }): void => {
   Array.from({ length: Math.round(seconds / STEP) }).forEach((): void => {
-    moveEnemies(testWorld.world, enemies, STEP);
+    moveEnemies({ world: testWorld.world, enemies, delta: STEP });
 
     if (isStepping) {
       testWorld.world.step();

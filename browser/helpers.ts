@@ -1,6 +1,6 @@
 // Общие хелперы для browser-mode E2E-тестов. Игровой цикл идёт в реальном времени
 // (requestAnimationFrame), поэтому события игры ждём опросом условия каждые 100 мс.
-import type { Enemies } from '../src/enemies';
+import type { Enemies } from '@/enemies';
 
 // Тестовый доступ к игре — DEV-хук window.__game в main.ts.
 export type GameAccess = { enemies: Enemies };
@@ -11,12 +11,20 @@ export const getGame = (): GameAccess | undefined => (isGameHolder(window) ? win
 
 export const getEnemiesCount = (): number => getGame()?.enemies.size ?? 0;
 
-// Ждёт, пока условие станет истинным. Бросает понятную ошибку, если не дождались.
-export const waitUntil = async (predicate: () => boolean, timeoutMs = 15000, what = 'условие'): Promise<void> => {
+// Ждёт, пока условие isDone станет истинным. Бросает понятную ошибку (what), если не дождались.
+export const waitUntil = async ({
+  isDone,
+  timeoutMs = 15000,
+  what = 'условие',
+}: {
+  isDone: () => boolean;
+  timeoutMs?: number;
+  what?: string;
+}): Promise<void> => {
   const start = performance.now();
 
   while (performance.now() - start < timeoutMs) {
-    if (predicate()) {
+    if (isDone()) {
       return;
     }
 
@@ -29,7 +37,7 @@ export const waitUntil = async (predicate: () => boolean, timeoutMs = 15000, wha
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Цифры урона на экране (все или только критические).
-export const getDamageNumbers = (isOnlyCrit = false): NodeListOf<Element> =>
+export const getDamageNumbers = (isOnlyCrit: boolean = false): NodeListOf<Element> =>
   document.querySelectorAll(isOnlyCrit ? '.damage-number.is-crit' : '.damage-number');
 
 // Кнопка с текстом text (переключатель скорости, звук).

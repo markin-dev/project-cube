@@ -1,8 +1,8 @@
 // Юнит-тесты описания панели настроек (src/settings-panel.ts): каждый параметр конфига есть в панели,
 // а значения из кода лежат внутри диапазонов своих ползунков.
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, ENEMY_KIND_NAMES } from '../src/config';
-import { KIND_SETTINGS, PANEL_CONFIG_KEYS, SECTIONS } from '../src/settings-panel';
+import { DEFAULT_CONFIG, ENEMY_KIND_NAMES } from '@/config';
+import { KIND_SETTINGS, PANEL_CONFIG_KEYS, SECTIONS } from '@/settings-panel';
 
 const PANEL_KEYS = new Set<string>(PANEL_CONFIG_KEYS);
 

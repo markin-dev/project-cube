@@ -56,7 +56,8 @@
   фикстуры `unit/fixtures.ts`, `unit/setup.ts` сбрасывает config) → E2E (`browser/`, 6 файлов / 18,
   chromium через Playwright, игру заводим импортом `main.ts`, доступ `window.__game`). Покрытие:
   `npm run test:coverage`, `npm run test:coverage:e2e`. Стиль — глобальный CLAUDE.md пользователя:
-  «Должен …», один `expect`, `it.each`, фейки UPPER_SNAKE_CASE, без `as`.
+  «Должен …», один `expect`, `it.each`, фейки UPPER_SNAKE_CASE, без `as`; импорт из src — `@/…`
+  (paths в tsconfig.json), общий сброс — `unit/setup.ts` и `browser/setup.ts`, а не `beforeEach`.
 - **Сборка:** 4 чанка — rapier 4.3 МБ (WASM в base64), three 531 КБ, vendor 31 КБ, код игры ~45 КБ;
   после деплоя перекачивается только код. Переход на некомпатный `@dimforge/rapier3d` (−0.5 МБ gzip)
   отложен — решение за пользователем.

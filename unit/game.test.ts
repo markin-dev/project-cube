@@ -1,12 +1,13 @@
 // Юнит-тесты игровой логики (src/game.ts) на headless-Rapier: волны и группы, лимит появлений,
 // стрельба, попадания, победа и поражение. HUD, звук и цифры урона — заглушки vi.fn.
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { config } from '../src/config';
-import type { Enemies } from '../src/enemies';
-import { createGame, type Game } from '../src/game';
-import { createPlayer } from '../src/player';
-import { createSparks } from '../src/sparks';
-import type { Wave } from '../src/waves';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { config } from '@/config';
+import type { Enemies } from '@/enemies';
+import { createGame, type Game } from '@/game';
+import type { Hud } from '@/hud';
+import { createPlayer } from '@/player';
+import { createSparks } from '@/sparks';
+import type { Wave } from '@/waves';
 import { createTestWorld } from './fixtures';
 
 const STEP = 1 / 60;
@@ -24,7 +25,14 @@ const TWO_GROUPS_WAVE: Wave = {
   ],
 };
 
-const createTestGame = async ({ waves }: { waves: Wave[] }) => {
+// Игра с заглушками интерфейса — их вызовы проверяют тесты.
+type TestGame = {
+  game: Game;
+  hud: Record<keyof Hud, Mock>;
+  showDamageNumber: Mock;
+};
+
+const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> => {
   const { world, eventQueue, scene } = await createTestWorld();
   const hud = { setWave: vi.fn(), setGroup: vi.fn(), showEndScreen: vi.fn(), hideEndScreen: vi.fn() };
   const showDamageNumber = vi.fn();

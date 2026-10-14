@@ -3,7 +3,7 @@
 // раскладку на ходу, без перезагрузки страницы.
 import { describe, expect, it } from 'vitest';
 import { page } from 'vitest/browser';
-import '../src/main';
+import '@/main';
 import { waitUntil } from './helpers';
 
 const NARROW_WIDTH = 320;
@@ -16,11 +16,15 @@ const getSpeedSwitch = (): HTMLElement | null =>
 
 const getPanel = (): HTMLElement | null => document.querySelector('.lil-gui.lil-auto-place');
 
+const isSwitchAt = (bottom: string): boolean => getSpeedSwitch()?.style.bottom === bottom;
+
+const isPanelAtBottom = (): boolean => getPanel()?.style.bottom === '0px';
+
 describe('раскладка под ширину экрана', () => {
   it('Должен поднять переключатель скорости над панелью после сужения экрана', async () => {
     await page.viewport(WIDE_WIDTH, HEIGHT);
     await page.viewport(NARROW_WIDTH, HEIGHT);
-    await waitUntil(() => getSpeedSwitch()?.style.bottom === '48px', 2000, 'подъём переключателя');
+    await waitUntil({ isDone: () => isSwitchAt('48px'), timeoutMs: 2000, what: 'подъём переключателя' });
 
     expect(getSpeedSwitch()?.style.bottom).toBe('48px');
   });
@@ -28,7 +32,7 @@ describe('раскладка под ширину экрана', () => {
   it('Должен прижать панель настроек к низу после сужения экрана', async () => {
     await page.viewport(WIDE_WIDTH, HEIGHT);
     await page.viewport(NARROW_WIDTH, HEIGHT);
-    await waitUntil(() => getPanel()?.style.bottom === '0px', 2000, 'панель внизу');
+    await waitUntil({ isDone: isPanelAtBottom, timeoutMs: 2000, what: 'панель внизу' });
 
     expect(getPanel()?.style.bottom).toBe('0px');
   });
@@ -36,7 +40,7 @@ describe('раскладка под ширину экрана', () => {
   it('Должен сузить панель настроек до ширины экрана с зазором 16 px по краям', async () => {
     await page.viewport(WIDE_WIDTH, HEIGHT);
     await page.viewport(NARROW_WIDTH, HEIGHT);
-    await waitUntil(() => getPanel()?.style.bottom === '0px', 2000, 'панель внизу');
+    await waitUntil({ isDone: isPanelAtBottom, timeoutMs: 2000, what: 'панель внизу' });
 
     expect(getComputedStyle(getPanel()!).width).toBe(`${NARROW_WIDTH - 32}px`);
   });
@@ -44,7 +48,7 @@ describe('раскладка под ширину экрана', () => {
   it('Должен вернуть переключатель скорости вниз после расширения экрана', async () => {
     await page.viewport(NARROW_WIDTH, HEIGHT);
     await page.viewport(WIDE_WIDTH, HEIGHT);
-    await waitUntil(() => getSpeedSwitch()?.style.bottom === '16px', 2000, 'возврат переключателя');
+    await waitUntil({ isDone: () => isSwitchAt('16px'), timeoutMs: 2000, what: 'возврат переключателя' });
 
     expect(getSpeedSwitch()?.style.bottom).toBe('16px');
   });

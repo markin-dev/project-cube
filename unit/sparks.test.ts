@@ -2,8 +2,8 @@
 // Проверяем то, что уходит в отрисовку, — матрицы экземпляров InstancedMesh в сцене.
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { config } from '../src/config';
-import { createSparks, type Sparks } from '../src/sparks';
+import { config } from '@/config';
+import { createSparks, type Sparks } from '@/sparks';
 import { addTestEnemy, createTestWorld } from './fixtures';
 
 const { world } = await createTestWorld();

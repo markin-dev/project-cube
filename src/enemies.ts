@@ -165,7 +165,15 @@ export const damageEnemy = (enemy: Enemy, damage: number): void => {
 // в неподвижной стопке.
 // Скорость не задаётся жёстко, а меняется постепенно — иначе любой толчок от удара гасился бы
 // на следующем же шаге. Враг в воздухе не управляется.
-export const moveEnemies = (world: RAPIER.World, enemies: Enemies, delta: number): void => {
+export const moveEnemies = ({
+  world,
+  enemies,
+  delta,
+}: {
+  world: RAPIER.World;
+  enemies: Enemies;
+  delta: number;
+}): void => {
   for (const enemy of enemies.values()) {
     const { body } = enemy;
     const position = body.translation();

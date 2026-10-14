@@ -1,8 +1,8 @@
 // E2E управления игрой из main.ts: пауза переключателем скорости, рестарт кликом после поражения,
 // запуск волны из панели настроек. Каждый тест сам включает нужную скорость в начале.
 import { expect, it } from 'vitest';
-import '../src/main';
-import { WAVES } from '../src/waves';
+import '@/main';
+import { WAVES } from '@/waves';
 import { getButton, getEnemiesCount, getGame, sleep, waitUntil } from './helpers';
 
 const LOSE_HINT = 'Нажми, чтобы начать заново';
@@ -30,7 +30,7 @@ const getWaveSelect = (): HTMLSelectElement => {
 
 it('Должен остановить игру кнопкой паузы', async () => {
   getButton('×1')?.click();
-  await waitUntil(() => getEnemiesCount() > 0, 15000, 'появление врагов');
+  await waitUntil({ isDone: () => getEnemiesCount() > 0, timeoutMs: 15000, what: 'появление врагов' });
   getButton('⏸')?.click();
 
   const paused = getEnemyPositions();
@@ -42,16 +42,16 @@ it('Должен остановить игру кнопкой паузы', async
 
 it('Должен начать игру заново по клику после поражения', async () => {
   getButton('×1')?.click();
-  await waitUntil(() => getEnemiesCount() > 0, 15000, 'появление врагов');
+  await waitUntil({ isDone: () => getEnemiesCount() > 0, timeoutMs: 15000, what: 'появление врагов' });
 
   // Враг вплотную к кубу игрока — поражение на ближайшем шаге.
   for (const { body } of getGame()?.enemies.values() ?? []) {
     body.setTranslation({ x: 0.8, y: 0.4, z: 0 }, true);
   }
 
-  await waitUntil(isLoseScreenShown, 5000, 'экран поражения');
+  await waitUntil({ isDone: isLoseScreenShown, timeoutMs: 5000, what: 'экран поражения' });
   document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-  await waitUntil(() => !isLoseScreenShown(), 5000, 'новая игра');
+  await waitUntil({ isDone: () => !isLoseScreenShown(), timeoutMs: 5000, what: 'новая игра' });
 
   expect(isLoseScreenShown()).toBe(false);
 });

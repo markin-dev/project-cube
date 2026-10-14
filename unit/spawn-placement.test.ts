@@ -2,9 +2,9 @@
 // существующего — сначала столбом вверх над точкой, потом вбок; внутрь безопасной зоны — никогда.
 // Враги — обычного типа (0.8 м), созданные spawnEnemy: подборщик читает их позицию, поворот и размер.
 import { describe, expect, it } from 'vitest';
-import { config } from '../src/config';
-import type { Enemies } from '../src/enemies';
-import { createSpawnPlacer } from '../src/spawn-placement';
+import { config } from '@/config';
+import type { Enemies } from '@/enemies';
+import { createSpawnPlacer } from '@/spawn-placement';
 import { addTestEnemy, createTestWorld } from './fixtures';
 
 const { world, scene } = await createTestWorld();

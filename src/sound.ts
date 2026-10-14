@@ -110,11 +110,8 @@ type NoiseParams = {
 const addNoise = (offline: OfflineAudioContext, { filter, frequency, q = 1, length, level, delay = 0 }: NoiseParams): void => {
   const source = offline.createBufferSource();
   const buffer = offline.createBuffer(1, Math.ceil(offline.sampleRate * (delay + length + 0.01)), offline.sampleRate);
-  const data = buffer.getChannelData(0);
 
-  for (let index = 0; index < data.length; index++) {
-    data[index] = Math.random() * 2 - 1;
-  }
+  buffer.copyToChannel(Float32Array.from({ length: buffer.length }, () => Math.random() * 2 - 1), 0);
 
   source.buffer = buffer;
 
@@ -194,6 +191,7 @@ const HIT_SETS: SoundSet[] = [
       // Глухой деревянный удар: низкий тон со скатом частоты, короткий «щелчок» и шум в серединних частотах.
       addTone(offline, { type: 'sine', frequency: rnd(220, 420), drop: 0.5, length: rnd(0.06, 0.12), level: 0.5 });
       addTone(offline, { type: 'sine', frequency: rnd(600, 950), drop: 0.6, length: rnd(0.03, 0.05), level: 0.15 });
+
       addNoise(offline, {
         filter: 'bandpass',
         frequency: rnd(900, 2200),
@@ -231,6 +229,7 @@ const HIT_SETS: SoundSet[] = [
     render: (offline): void => {
       // «Бзик»: пила с быстрым скатом частоты вниз, квадратная гармоника и шум.
       addTone(offline, { type: 'sawtooth', frequency: rnd(900, 1800), drop: 0.25, length: rnd(0.08, 0.14), level: 0.35 });
+
       addTone(offline, {
         type: 'square',
         frequency: rnd(2000, 3500),
@@ -239,6 +238,7 @@ const HIT_SETS: SoundSet[] = [
         length: rnd(0.04, 0.08),
         level: 0.18,
       });
+
       addNoise(offline, { filter: 'highpass', frequency: rnd(2500, 6000), length: rnd(0.02, 0.04), level: 0.3 });
     },
   },
@@ -260,6 +260,7 @@ const SHOT_SETS: SoundSet[] = [
         length: rnd(0.012, 0.025),
         level: 0.16,
       });
+
       addTone(offline, { type: 'sine', frequency: rnd(200, 320), drop: 0.45, length: rnd(0.03, 0.05), level: 0.1 });
     },
   },
@@ -290,6 +291,7 @@ const SHOT_SETS: SoundSet[] = [
     render: (offline): void => {
       // Свистящая пуля: треугольник, скатывающийся вдвое, и узкая полоса шума.
       addTone(offline, { type: 'triangle', frequency: rnd(1000, 1400), drop: 0.5, length: rnd(0.05, 0.09), level: 0.12 });
+
       addNoise(offline, {
         filter: 'bandpass',
         frequency: rnd(2500, 4000),
@@ -313,6 +315,7 @@ const SHOT_SETS: SoundSet[] = [
         length: rnd(0.06, 0.09),
         level: 0.1,
       });
+
       addNoise(offline, { filter: 'highpass', frequency: rnd(4000, 7000), length: rnd(0.01, 0.02), level: 0.12 });
     },
   },
@@ -339,7 +342,7 @@ const DEATH_SETS: SoundSet[] = [
       // Куб рассыпался: 2–4 коротких осколка с случайными задержками + тихий низ.
       const fragments = 2 + Math.floor(rnd(0, 3));
 
-      for (let index = 0; index < fragments; index++) {
+      Array.from({ length: fragments }).forEach((): void => {
         addNoise(offline, {
           filter: 'bandpass',
           frequency: rnd(1500, 4500),
@@ -348,7 +351,7 @@ const DEATH_SETS: SoundSet[] = [
           level: 0.14,
           delay: rnd(0, 0.12),
         });
-      }
+      });
 
       addTone(offline, { type: 'sine', frequency: rnd(120, 180), drop: 0.4, length: rnd(0.08, 0.13), level: 0.18 });
     },
@@ -367,6 +370,7 @@ const DEATH_SETS: SoundSet[] = [
         length: rnd(0.2, 0.3),
         level: 0.28,
       });
+
       addNoise(offline, { filter: 'lowpass', frequency: rnd(500, 900), q: 0.7, length: rnd(0.05, 0.1), level: 0.12 });
     },
   },
@@ -389,6 +393,7 @@ const DEATH_SETS: SoundSet[] = [
     render: (offline): void => {
       // Мягкое «блип»: тон, быстро оседающий вниз, и широкий шумовой бульк.
       addTone(offline, { type: 'sine', frequency: rnd(600, 850), drop: 0.3, length: rnd(0.1, 0.16), level: 0.2 });
+
       addNoise(offline, {
         filter: 'bandpass',
         frequency: rnd(600, 1000),
@@ -475,11 +480,12 @@ export const createSound = (): Sound => {
   typeGains.shot.connect(master);
   typeGains.death.connect(master);
 
-  let isMuted = false;
+  // Общий мут (кнопка 🔇) и выбранные наборы. Объекты одни на всё время жизни звука, меняем их поля.
+  const mute = { isMuted: false };
   const setIds: Record<SoundType, string> = { ...DEFAULT_SET_IDS };
 
   try {
-    isMuted = localStorage.getItem(MUTED_STORAGE_KEY) === '1';
+    mute.isMuted = localStorage.getItem(MUTED_STORAGE_KEY) === '1';
 
     const saved: unknown = JSON.parse(localStorage.getItem(SETS_STORAGE_KEY) ?? '{}');
 
@@ -510,7 +516,7 @@ export const createSound = (): Sound => {
   const lastPlayedAt: Record<SoundType, number> = { hit: 0, shot: 0, death: 0 };
 
   const applyVolume = (): void => {
-    master.gain.value = isMuted ? 0 : config.SOUND_VOLUME;
+    master.gain.value = mute.isMuted ? 0 : config.SOUND_VOLUME;
 
     for (const type of TYPES) {
       typeGains[type].gain.value = config[VOLUME_KEYS[type]];
@@ -540,6 +546,7 @@ export const createSound = (): Sound => {
     }
 
     requestedKeys.add(key);
+
     renderSet(set)
       .then((buffers: AudioBuffer[]): void => {
         variantsByKey.set(key, buffers);
@@ -557,7 +564,7 @@ export const createSound = (): Sound => {
 
   const play = (type: SoundType): void => {
     // Мут типа читается в момент события: чекбокс в панели действует сразу, без перерисовки.
-    if (isMuted || config[MUTED_KEYS[type]]) {
+    if (mute.isMuted || config[MUTED_KEYS[type]]) {
       return;
     }
 
@@ -580,12 +587,10 @@ export const createSound = (): Sound => {
       return;
     }
 
-    let variantIndex = Math.floor(Math.random() * variants.length);
-
     // Не повторяем предыдущий вариант подряд: подряд идущие одинаковые звуки слышно.
-    if (variantIndex === lastVariantIndexes[type] && variants.length > 1) {
-      variantIndex = (variantIndex + 1) % variants.length;
-    }
+    const randomIndex = Math.floor(Math.random() * variants.length);
+    const isRepeat = randomIndex === lastVariantIndexes[type] && variants.length > 1;
+    const variantIndex = isRepeat ? (randomIndex + 1) % variants.length : randomIndex;
 
     lastVariantIndexes[type] = variantIndex;
     lastPlayedAt[type] = performance.now();
@@ -605,10 +610,10 @@ export const createSound = (): Sound => {
     playShot: (): void => play('shot'),
     playDeath: (): void => play('death'),
 
-    isMuted: (): boolean => isMuted,
+    isMuted: (): boolean => mute.isMuted,
 
     setMuted: (value: boolean): void => {
-      isMuted = value;
+      mute.isMuted = value;
       applyVolume();
 
       try {

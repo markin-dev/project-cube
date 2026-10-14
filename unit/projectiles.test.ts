@@ -2,19 +2,19 @@
 // отсчёт до залпа, выстрел и уборка промахов. Враги и снаряды — настоящие объекты на headless-Rapier.
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { config, MIN_FIRE_INTERVAL } from '../src/config';
-import type { Enemies, Enemy } from '../src/enemies';
+import { config, MIN_FIRE_INTERVAL } from '@/config';
+import type { Enemies, Enemy } from '@/enemies';
 import {
   applyCritToDamage,
   findTargets,
   fireProjectiles,
+  isCritRolled,
   predictPosition,
   removeFarProjectiles,
-  rollCrit,
   rollDamage,
   runFireTimer,
   type Projectiles,
-} from '../src/projectiles';
+} from '@/projectiles';
 import { addTestEnemy, createTestWorld, getHandle } from './fixtures';
 
 const { world, scene } = await createTestWorld();
@@ -38,7 +38,7 @@ const fireAt = (enemy: Enemy): Projectiles => {
 
 // Сколько залпов в секунду выходит при шаге step, если стрелять всегда есть в кого.
 const getVolleysPerSecond = (step: number): number => {
-  const fireVolley = vi.fn((): boolean => true);
+  const fireVolley = vi.fn((): number => 1);
 
   Array.from({ length: Math.round(SIMULATED_SECONDS / step) }).reduce<number>(
     (timer) => runFireTimer({ timer, delta: step, fireVolley }),
@@ -78,20 +78,20 @@ describe('rollDamage', () => {
   });
 });
 
-describe('rollCrit', () => {
+describe('isCritRolled', () => {
   it.each([
     [0, 0],
     [1, ROLLS_COUNT],
   ])('Должен при шансе %s давать %s критов', (chance, expected) => {
     config.CRIT_CHANCE = chance;
 
-    expect(rollMany(() => Number(rollCrit())).filter(Boolean).length).toBe(expected);
+    expect(rollMany(() => Number(isCritRolled())).filter(Boolean).length).toBe(expected);
   });
 
   it('Должен при шансе 0.5 давать криты примерно в половине бросков', () => {
     config.CRIT_CHANCE = 0.5;
 
-    const crits = Array.from({ length: 20000 }, rollCrit).filter(Boolean).length;
+    const crits = Array.from({ length: 20000 }, isCritRolled).filter(Boolean).length;
 
     expect(crits / 20000).toBeCloseTo(0.5, 1);
   });
@@ -216,11 +216,11 @@ describe('runFireTimer', () => {
   });
 
   it('Должен держать отсчёт на нуле, пока стрелять не в кого', () => {
-    expect(runFireTimer({ timer: 0, delta: 1 / 30, fireVolley: (): boolean => false })).toBe(0);
+    expect(runFireTimer({ timer: 0, delta: 1 / 30, fireVolley: (): number => 0 })).toBe(0);
   });
 
   it('Должен выпустить один залп, когда цель появилась после ожидания', () => {
-    const fireVolley = vi.fn((): boolean => true);
+    const fireVolley = vi.fn((): number => 1);
 
     runFireTimer({ timer: 0, delta: 1 / 30, fireVolley });
 

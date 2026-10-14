@@ -40,7 +40,7 @@ const HIDDEN_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
 
 // Одна искра: где она, куда летит, сколько уже прожила и как повёрнута.
 type Spark = {
-  alive: boolean;
+  isAlive: boolean;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
 
@@ -151,7 +151,7 @@ const getSparkColor = (isCrit: boolean): THREE.Color =>
 export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
   // Пул искр: массив фиксированной длины, слоты используются по кругу.
   const sparks: Spark[] = Array.from({ length: MAX_ALIVE_SPARKS }, () => ({
-    alive: false,
+    isAlive: false,
     position: new THREE.Vector3(),
     velocity: new THREE.Vector3(),
     age: 0,
@@ -170,14 +170,12 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   scene.add(mesh);
 
-  // Сколько слотов уже записано с начала игры: обновляются только они, а не весь пул.
-  let usedSlots = 0;
+  // Состояние пула: сколько слотов уже записано с начала игры (обновляются только они, а не весь пул),
+  // очередной слот для новой искры и изменились ли искры с прошлого sync (на паузе матрицы не трогаем).
+  const pool = { usedSlots: 0, cursor: 0, isDirty: false };
 
-  // Очередной слот для новой искры.
-  let cursor = 0;
-
-  // Изменились ли искры с прошлого sync: на паузе и без искр матрицы не трогаем.
-  let isDirty = false;
+  // Записанные слоты пула — индекс в массиве совпадает с номером слота.
+  const getUsedSparks = (): Spark[] => sparks.slice(0, pool.usedSlots);
 
   const hide = (index: number): void => {
     mesh.setMatrixAt(index, HIDDEN_MATRIX);
@@ -185,10 +183,7 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
 
   // Пул пустой — прятать нечего, но матрицы нужно один раз обнулить иначе InstancedMesh
   // остался бы со своими начальными значениями (что в них — не гарантировано).
-  for (let index = 0; index < MAX_ALIVE_SPARKS; index++) {
-    hide(index);
-  }
-
+  sparks.forEach((_, index): void => hide(index));
   mesh.instanceMatrix.needsUpdate = true;
 
   const spawn = ({ projectilePosition, enemy, isCrit = false }: SpawnParams): void => {
@@ -211,44 +206,44 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     const lifetime = config.SPARKS_LIFETIME;
     const baseSpeed = config.SPARKS_SPEED * (isCrit ? config.SPARKS_CRIT_SPEED_MULTIPLIER : 1);
 
-    for (let n = 0; n < count; n++) {
-      const index = cursor;
+    Array.from({ length: count }).forEach((): void => {
+      const index = pool.cursor;
+      const spark = sparks[index];
 
       // Круговой указатель: заполнив последний слот, начинаем заново с первого — самая старая
       // искра в этом слоте перезаписывается, её жизнь обрывается раньше срока.
-      cursor = (cursor + 1) % MAX_ALIVE_SPARKS;
-      usedSlots = Math.max(usedSlots, index + 1);
-
-      const spark = sparks[index];
+      pool.cursor = (pool.cursor + 1) % MAX_ALIVE_SPARKS;
+      pool.usedSlots = Math.max(pool.usedSlots, index + 1);
 
       // Скорость: базовая скорость минус случайная доля до SPARKS_SPEED_SPREAD — при 0 все летят
       // одинаково, при 1 — от нуля до полной, и сгусток искр растягивается во время полёта.
       const speed = baseSpeed * (1 - speedSpread * Math.random());
 
-      spark.alive = true;
+      spark.isAlive = true;
       spark.position.copy(burstPosition);
       spark.velocity.copy(getBurstDirection()).multiplyScalar(speed);
       spark.age = 0;
       spark.lifetime = lifetime;
       spark.isCrit = isCrit;
+
       spark.orientation.setFromEuler(
         EULER.set(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2),
       );
 
       // Цвет этой искры: базовый цвет попадания уже в baseColor, копируем в её instanceColor.
       mesh.setColorAt(index, baseColor);
-    }
+    });
 
     // instanceColor — буфер, заполненный setColorAt, сообщаем драйверу видеокарты, что он изменился.
     if (mesh.instanceColor) {
       mesh.instanceColor.needsUpdate = true;
     }
 
-    isDirty = true;
+    pool.isDirty = true;
   };
 
   const update = (delta: number): void => {
-    if (usedSlots === 0) {
+    if (pool.usedSlots === 0) {
       return;
     }
 
@@ -256,21 +251,19 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     const gravity = config.GRAVITY * config.SPARKS_GRAVITY_SCALE;
     const damping = 1 / (1 + config.SPARKS_DAMPING * delta);
 
-    for (let index = 0; index < usedSlots; index++) {
-      const spark = sparks[index];
-
-      if (!spark.alive) {
-        continue;
+    getUsedSparks().forEach((spark, index): void => {
+      if (!spark.isAlive) {
+        return;
       }
 
       spark.age += delta;
 
       // Время вышло — гасим и освобождаем слот для будущих искр.
       if (spark.age >= spark.lifetime) {
-        spark.alive = false;
+        spark.isAlive = false;
         hide(index);
 
-        continue;
+        return;
       }
 
       spark.velocity.y -= gravity * delta;
@@ -289,58 +282,51 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
         spark.position.y = half;
         spark.velocity.y = 0;
       }
-    }
+    });
 
-    isDirty = true;
+    pool.isDirty = true;
   };
 
   const sync = (): void => {
-    if (!isDirty) {
+    if (!pool.isDirty) {
       return;
     }
 
-    for (let index = 0; index < usedSlots; index++) {
-      const spark = sparks[index];
-
-      if (spark.alive) {
+    getUsedSparks().forEach((spark, index): void => {
+      if (spark.isAlive) {
         SCALE.setScalar(getSparkScale(spark));
         mesh.setMatrixAt(index, MATRIX.compose(spark.position, spark.orientation, SCALE));
       }
-    }
+    });
 
     mesh.instanceMatrix.needsUpdate = true;
-    isDirty = false;
+    pool.isDirty = false;
   };
 
   const clear = (): void => {
-    for (let index = 0; index < usedSlots; index++) {
-      sparks[index].alive = false;
+    getUsedSparks().forEach((spark, index): void => {
+      spark.isAlive = false;
       hide(index);
-    }
+    });
 
-    usedSlots = 0;
-    cursor = 0;
+    pool.usedSlots = 0;
+    pool.cursor = 0;
+    pool.isDirty = false;
     mesh.instanceMatrix.needsUpdate = true;
-    isDirty = false;
   };
 
   // Перекрашивает живые искры по текущему конфигу — вызывается, когда цвет меняют в панели настроек.
   // Цвет живёт в instanceColor каждой искры, поэтому переписываем его по живым слотам.
   const refreshColor = (): void => {
-    let changed = false;
+    const aliveSlots = getUsedSparks()
+      .map((spark, index) => ({ spark, index }))
+      .filter(({ spark }) => spark.isAlive);
 
-    for (let index = 0; index < usedSlots; index++) {
-      const spark = sparks[index];
-
-      if (!spark.alive) {
-        continue;
-      }
-
+    aliveSlots.forEach(({ spark, index }): void => {
       mesh.setColorAt(index, getSparkColor(spark.isCrit));
-      changed = true;
-    }
+    });
 
-    if (changed && mesh.instanceColor) {
+    if (aliveSlots.length > 0 && mesh.instanceColor) {
       mesh.instanceColor.needsUpdate = true;
     }
   };

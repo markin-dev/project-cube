@@ -185,15 +185,17 @@ export const createGame = ({
     // потом в стороны (см. spawn-placement.ts). Подборщик мест строится один раз на шаг
     // и сам учитывает врагов, которые появляются в этом же шаге.
     const placeEnemy = createSpawnPlacer(enemies);
-    let remaining = budget;
+
+    // Сколько врагов каждой группы выпустить в этом шаге: по порядку групп, пока хватает бюджета.
+    // Остаток (и следующие группы) появятся в следующих шагах.
+    const spawnCounts = dueCounts.reduce<number[]>((counts, dueCount) => {
+      const spent = counts.reduce((sum, count) => sum + count, 0);
+
+      return [...counts, Math.min(dueCount, budget - spent)];
+    }, []);
 
     for (const [index, group] of state.groups.entries()) {
-      // Бюджет исчерпан — остальные группы (и остаток этой) появятся в следующем шаге.
-      if (remaining <= 0) {
-        break;
-      }
-
-      const spawnCount = Math.min(dueCounts[index], remaining);
+      const spawnCount = spawnCounts[index];
 
       for (const event of group.events.slice(group.spawnedCount, group.spawnedCount + spawnCount)) {
         const position = placeEnemy({ point: event, size: config.ENEMY_KINDS[event.kindName].size });
@@ -202,7 +204,6 @@ export const createGame = ({
       }
 
       group.spawnedCount += spawnCount;
-      remaining -= spawnCount;
     }
   };
 
@@ -248,8 +249,9 @@ export const createGame = ({
 
   // Раз в config.FIRE_INTERVAL секунд выпускаем залп: до config.PROJECTILE_COUNT снарядов — по одному
   // на разных ближайших врагов, которых летящие снаряды ещё не добьют (см. findTargets в projectiles.ts).
-  // Отсчёт и перенос остатка между шагами — runFireTimer в projectiles.ts.
-  const fireVolley = (): boolean => {
+  // Отсчёт и перенос остатка между шагами — runFireTimer в projectiles.ts. Возвращает, сколько снарядов
+  // выпущено: 0 — стрелять не в кого.
+  const fireVolley = (): number => {
     const targets = findTargets({
       enemies,
       projectiles,
@@ -257,14 +259,14 @@ export const createGame = ({
     });
 
     if (targets.length === 0) {
-      return false;
+      return 0;
     }
 
     // Залп — и один звук выстрела на весь залп.
     fireProjectiles({ world, scene, entities: projectiles, targets });
     sound.playShot();
 
-    return true;
+    return targets.length;
   };
 
   // Наносит урон врагу и показывает число урона чуть выше его полоски здоровья.
@@ -371,7 +373,7 @@ export const createGame = ({
 
     spawnScheduledEnemies(delta);
     state.fireTimer = runFireTimer({ timer: state.fireTimer, delta, fireVolley });
-    moveEnemies(world, enemies, delta);
+    moveEnemies({ world, enemies, delta });
 
     // Продвигаем симуляцию на delta секунд: двигаем тела, разрешаем столкновения
     // и складываем события о них в eventQueue.

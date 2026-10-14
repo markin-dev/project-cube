@@ -1,6 +1,6 @@
 // Юнит-тесты хранения изменений конфига (src/config-storage.ts). Модуль не импортирует config.ts,
 // а получает объекты параметрами; localStorage даёт окружение happy-dom (см. vitest.config.ts).
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   applyChanges,
   clearSavedChanges,
@@ -10,13 +10,9 @@ import {
   isRecord,
   readSavedChanges,
   saveChanges,
-} from '../src/config-storage';
+} from '@/config-storage';
 
 const STORAGE_KEY = 'project-cube:config-changes';
-
-beforeEach(() => {
-  localStorage.removeItem(STORAGE_KEY);
-});
 
 describe('isRecord', () => {
   it.each([

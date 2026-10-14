@@ -67,7 +67,7 @@ export const rollDamage = (): number => {
 // Бросок критического попадания: снаряд критический с вероятностью CRIT_CHANCE.
 // Один раз при выстреле (вместе с уроном) — результат запоминается в снаряде (см. Projectile).
 // Экспортируется для юнит-тестов.
-export const rollCrit = (): boolean => Math.random() < config.CRIT_CHANCE;
+export const isCritRolled = (): boolean => Math.random() < config.CRIT_CHANCE;
 
 // Итоговый урон снаряда: если крит — брошенный урон, увеличенный в CRIT_MULTIPLIER раз.
 // Округляем до целого, потому что здоровье врагов — целые числа (hp).
@@ -179,8 +179,8 @@ const getAimPoint = ({ world, enemy, muzzle }: AimParams): THREE.Vector3 => {
 // Обратный отсчёт до залпа за один шаг симуляции; возвращает новое значение отсчёта.
 // Остаток переносится: залп, запоздавший на долю шага, сдвигает следующий на столько же раньше,
 // поэтому темп не зависит от длины шага — частоты кадров и скорости игры. Пауза короче шага —
-// несколько залпов за шаг. fireVolley возвращает false, если стрелять не в кого: тогда отсчёт
-// замирает на нуле, и залп случится, как только цель появится, — без накопленной очереди.
+// несколько залпов за шаг. fireVolley возвращает, сколько снарядов выпущено; 0 — стрелять не в кого:
+// тогда отсчёт замирает на нуле, и залп случится, как только цель появится, — без накопленной очереди.
 export const runFireTimer = ({
   timer,
   delta,
@@ -188,7 +188,7 @@ export const runFireTimer = ({
 }: {
   timer: number;
   delta: number;
-  fireVolley: () => boolean;
+  fireVolley: () => number;
 }): number => {
   const interval = Math.max(config.FIRE_INTERVAL, MIN_FIRE_INTERVAL);
 
@@ -197,7 +197,7 @@ export const runFireTimer = ({
       return left;
     }
 
-    return fireVolley() ? fireDueVolleys(left + interval) : 0;
+    return fireVolley() > 0 ? fireDueVolleys(left + interval) : 0;
   };
 
   return fireDueVolleys(timer - delta);
@@ -216,7 +216,7 @@ const fireOneProjectile = ({
   const size = config.PROJECTILE_SIZE;
 
   // Крит и урон бросаются один раз при выстреле (см. Projectile.isCrit).
-  const isCrit = rollCrit();
+  const isCrit = isCritRolled();
   const damage = applyCritToDamage(rollDamage(), isCrit);
 
   // Видимый размер: крит-пуля крупнее в CRIT_PROJECTILE_SIZE_MULTIPLIER раз (только меш —

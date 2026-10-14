@@ -11,8 +11,14 @@ import { playwright } from '@vitest/browser-playwright';
 // headless: true — без окна. Флаги --enable-unsafe-swiftshader и --use-angle=swiftshader нужны, чтобы
 // WebGL работал на программном рендерере (в headless нет GPU).
 export default defineConfig({
+  // Алиас @/ → src/ — из paths в tsconfig.json.
+  resolve: { tsconfigPaths: true },
+
   test: {
     include: ['browser/**/*.test.ts'],
+
+    // Перед каждым тестом localStorage очищается (см. browser/setup.ts).
+    setupFiles: ['browser/setup.ts'],
     // Browser mode гоняет каждый файл в отдельной странице, но страниц у нас одна — файлы идут по очереди.
     fileParallelism: false,
     testTimeout: 30000,

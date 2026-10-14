@@ -427,6 +427,7 @@ export const createSettingsPanel = ({
         .writeText(text)
         .then((): void => {
           copyButton.name(COPIED_LABEL);
+
           setTimeout((): void => {
             copyButton.name(COPY_LABEL);
           }, COPIED_LABEL_DURATION);

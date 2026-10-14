@@ -1,10 +1,10 @@
 // Юнит-тесты призраков (src/corpses.ts): погибший враг переходит в призраки и сталкивается только
 // с полом, враг за краем арены, выше потолка или под полом погибает сразу, призрак сжимается и исчезает.
 import { describe, expect, it } from 'vitest';
-import { CORPSE_GROUPS } from '../src/collision-groups';
-import { config } from '../src/config';
-import { turnIntoCorpse, turnOutOfArenaIntoCorpses, updateCorpses, type Corpses } from '../src/corpses';
-import type { Enemies } from '../src/enemies';
+import { CORPSE_GROUPS } from '@/collision-groups';
+import { config } from '@/config';
+import { turnIntoCorpse, turnOutOfArenaIntoCorpses, updateCorpses, type Corpses } from '@/corpses';
+import type { Enemies } from '@/enemies';
 import { addTestEnemy, createTestWorld, getHandle } from './fixtures';
 
 const { world, scene } = await createTestWorld();
