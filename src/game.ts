@@ -175,11 +175,11 @@ export const createGame = ({
       return;
     }
 
-    // Лимит появлений за шаг (SPAWN_PER_FRAME): огромная группа выходит порциями несколько шагов подряд —
+    // Лимит появлений за шаг (SPAWN_PER_STEP): огромная группа выходит порциями несколько шагов подряд —
     // на глаз это мгновенное появление, а шаг не проваливается на секунды из-за поиска мест в толпе.
     // Невыпущенные события ждут следующего шага: spawnedCount не двигается, порядок и условия
     // появления не меняются, только скорость выдачи. 0 — без лимита.
-    const budget = config.SPAWN_PER_FRAME > 0 ? Math.max(1, Math.floor(config.SPAWN_PER_FRAME)) : Infinity;
+    const budget = config.SPAWN_PER_STEP > 0 ? Math.max(1, Math.floor(config.SPAWN_PER_STEP)) : Infinity;
 
     // Точку из расписания двигаем к свободному месту, если там уже кто-то: сначала вверх столбом над ней,
     // потом в стороны (см. spawn-placement.ts). Подборщик мест строится один раз на шаг
@@ -293,7 +293,7 @@ export const createGame = ({
       return;
     }
 
-    // Урон и критичность брошены при выстреле (см. fireOneProjectile) — запоминаем до удаления пули.
+    // Урон и критичность брошены при выстреле (см. Projectile.isCrit) — запоминаем до удаления пули.
     const { damage, isCrit } = projectile;
     const enemy = enemies.get(enemyHandle);
 

@@ -1,6 +1,6 @@
 // Кнопка общего мута 🔊 / 🔇 — в том ряду, что и переключатель скорости (левый нижний угол):
 // выключает и включает весь звук сразу. Настройки каждого типа (громкость, свой мут, набор) —
-// в панели настроек, раздел «Звук» (settings-panel.ts), их туда и перенесли, когда звуков стало три.
+// в панели настроек, раздел «Звук» (settings-panel.ts).
 //
 // Состояние живёт в sound.ts: кнопка только показывает иконку и передаёт переключение,
 // поэтому mute переживает перезагрузку страницы.
@@ -24,15 +24,10 @@ const BUTTON_STYLE = `
   cursor: pointer;
 `;
 
-export type SoundSwitch = {
-  // Проверка «событие произошло на кнопке звука?» — чтобы клик по ней не перезапускал игру.
-  isSwitchTarget: (target: EventTarget | null) => boolean;
-};
-
 // Кнопка живёт внутри ряда переключателя скорости (speed-switch.ts отдаёт этот ряд), поэтому
-// автоматически поднимается над шапкой панели на узком экране, а клик по ней не перезапускает игру
-// (main.ts проверяет весь ряд через isSwitchTarget скорости).
-export const createSoundSwitch = ({ container, sound }: { container: HTMLDivElement; sound: Sound }): SoundSwitch => {
+// поднимается над шапкой панели на узком экране, а клик по ней не перезапускает игру —
+// main.ts проверяет весь ряд через speedSwitch.isSwitchTarget.
+export const createSoundSwitch = ({ container, sound }: { container: HTMLDivElement; sound: Sound }): void => {
   const muteButton = document.createElement('button');
   muteButton.style.cssText = BUTTON_STYLE;
 
@@ -56,8 +51,4 @@ export const createSoundSwitch = ({ container, sound }: { container: HTMLDivElem
 
   container.append(muteButton);
   updateLook();
-
-  return {
-    isSwitchTarget: (target: EventTarget | null): boolean => target instanceof Node && muteButton.contains(target),
-  };
 };

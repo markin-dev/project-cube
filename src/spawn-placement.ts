@@ -213,10 +213,10 @@ type SpawnRequest = {
 // Подбирает место одному врагу: возвращает позицию его центра (с высотой).
 export type SpawnPlacer = (request: SpawnRequest) => THREE.Vector3;
 
-// Создаёт подборщик мест на один кадр: раскладывает живых врагов и куб-игрока по сетке. Пока враги
-// появляются в этом кадре, никто не двигается, поэтому сетку достаточно построить один раз, а каждого
+// Создаёт подборщик мест на один шаг симуляции: раскладывает живых врагов и куб-игрока по сетке. Пока
+// враги появляются в этом шаге, никто не двигается, поэтому сетку достаточно построить один раз, а каждого
 // появившегося врага подборщик сам добавляет в неё — следующие уже не встанут на его место.
-// В следующем кадре все сдвинутся — нужен новый подборщик.
+// На следующем шаге все сдвинутся — нужен новый подборщик.
 export const createSpawnPlacer = (enemies: Enemies): SpawnPlacer => {
   const grid: Grid = new Map();
   const playerSize = config.PLAYER_SIZE;
@@ -266,7 +266,7 @@ export const createSpawnPlacer = (enemies: Enemies): SpawnPlacer => {
     const layerStep = size + gap;
     const layersCount = Math.max(1, Math.floor((config.DEATH_CEILING_HEIGHT - size) / layerStep) + 1);
 
-    // Занимаем найденное место в сетке — следующие враги этого кадра его обойдут.
+    // Занимаем найденное место в сетке — следующие враги этого шага его обойдут.
     const occupy = (position: Point & { y: number }): THREE.Vector3 => {
       addToGrid(grid, getCubeBox({ ...position, size }));
 

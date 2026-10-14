@@ -12,9 +12,6 @@ dist
 dist-ssr
 *.local
 
-# E2E-тесты: скриншоты — артефакты прогона, а не код
-tests/screenshots/
-
 # Локально распакованная libasound для browser-тестов (см. scripts/run-browser-tests.sh)
 .local-libs/
 

@@ -77,7 +77,7 @@ export const SECTIONS: Section[] = [
       { key: 'DEATH_WALL_OPACITY', label: 'Непрозрачность границы', min: 0, max: 1, step: 0.05 },
       { key: 'DEATH_CEILING_HEIGHT', label: 'Потолок смерти, м', min: 2, max: 40, step: 0.5 },
       { key: 'ENEMY_COUNT_MULTIPLIER', label: 'Множитель врагов', min: 1, max: 200, step: 1, apply: 'nextWave' },
-      { key: 'SPAWN_PER_FRAME', label: 'Появлений за кадр', min: 0, max: 500, step: 10 },
+      { key: 'SPAWN_PER_STEP', label: 'Появлений за шаг', min: 0, max: 500, step: 10 },
       { key: 'SPAWN_GAP', label: 'Зазор при появлении, м', min: 0, max: 2, step: 0.05 },
     ],
   },
@@ -256,12 +256,12 @@ const addEnemyKinds = (folder: GUI): void => {
   }
 };
 
-// Раздел «Волны (отладка)»: ручной выбор волны. Выбранная волна запускается сразу (startGame в main.ts):
+// Раздел «Волны (отладка)»: ручной выбор волны. Выбранная волна запускается сразу (startGame в game.ts):
 // арена чистится от врагов, снарядов и призраков, счётчики обнуляются. После этого волны идут как обычно,
 // до самой последней — то есть из выбранной волны игра продолжается дальше по списку.
 // Это действие, а не настройка: объект picked в конфиг не входит, поэтому не сохраняется в localStorage
 // и не считается в «изменено: N».
-// Возвращает функцию синхронизации: селект показывает текущую волну (вызывается из startWave в main.ts),
+// Возвращает функцию синхронизации: селект показывает текущую волну (вызывается из startWave в game.ts),
 // иначе после автоматического перехода на следующую волну в селекте осталась бы старая.
 const addWavePicker = (gui: GUI, onStartWave: (waveIndex: number) => void): ((waveIndex: number) => void) => {
   const folder = gui.addFolder('Волны (отладка)');

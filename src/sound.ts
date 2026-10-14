@@ -208,8 +208,7 @@ const HIT_SETS: SoundSet[] = [
     title: 'Кирпич',
     duration: 0.2,
     render: (offline): void => {
-      // Тяжёлый глухой удар: почти низкие частоты и приглушённый шум. Ближе всего к тому звуку,
-      // что был до наборов — поэтому набор по умолчанию.
+      // Тяжёлый глухой удар: почти низкие частоты и приглушённый шум.
       addTone(offline, { type: 'sine', frequency: rnd(110, 200), drop: 0.45, length: rnd(0.07, 0.13), level: 0.6 });
       addNoise(offline, { filter: 'lowpass', frequency: rnd(700, 1600), q: 0.7, length: rnd(0.03, 0.06), level: 0.35 });
     },
@@ -407,7 +406,7 @@ const SETS_BY_TYPE: Record<SoundType, SoundSet[]> = {
   death: DEATH_SETS,
 };
 
-// Наборы по умолчанию: «Кирпич» — ближе к тому звуку, что был до наборов.
+// Наборы по умолчанию для каждого типа.
 const DEFAULT_SET_IDS: Record<SoundType, string> = { hit: 'brick', shot: 'click', death: 'pop' };
 
 // Список наборов для селектов панели настроек: только подписи, рендер — внутреннее дело.

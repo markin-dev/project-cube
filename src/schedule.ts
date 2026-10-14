@@ -9,7 +9,7 @@ export type SpawnEvent = Point & {
 };
 
 // Расписание одной группы волны: delay — не позже скольких секунд от начала волны группа начнётся
-// (раньше — если все враги предыдущих групп уже убиты, см. startDueGroups в main.ts),
+// (раньше — если все враги предыдущих групп уже убиты, см. startDueGroups в game.ts),
 // events — её враги по порядку появления.
 export type GroupSchedule = {
   delay: number;

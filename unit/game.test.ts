@@ -97,8 +97,8 @@ describe('группы волны', () => {
     expect(game.enemies.size).toBe(3);
   });
 
-  it('Должен выпускать за шаг не больше SPAWN_PER_FRAME врагов', async () => {
-    config.SPAWN_PER_FRAME = 10;
+  it('Должен выпускать за шаг не больше SPAWN_PER_STEP врагов', async () => {
+    config.SPAWN_PER_STEP = 10;
 
     const { game } = await createTestGame({
       waves: [{ name: 'Толпа', groups: [{ shape: { type: 'random', count: 25 }, enemy: 'tiny' }] }],

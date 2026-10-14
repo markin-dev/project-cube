@@ -52,7 +52,7 @@ export const WAVES: Wave[] = [
     groups: [{ shape: { type: 'random', count: 8 } }],
   },
   {
-    // Вдвое больше точек — ровная россыпь по всему кольцу спавна.
+    // Втрое больше точек — ровная россыпь по всему кольцу спавна.
     name: 'Форма: частые',
     groups: [{ shape: { type: 'random', count: 24 } }],
   },
@@ -120,8 +120,8 @@ export const WAVES: Wave[] = [
     groups: [{ shape: { type: 'random', count: 8 }, interval: 0.5, enemy: 'brute' }],
   },
   {
-    // Группы через delay: три россыпи по восемь с интервалом 2 с — волны идут друг за другом.
-    name: 'Затухающие волны',
+    // Группы через delay: три россыпи по восемь с интервалом 2 с — идут друг за другом.
+    name: 'Три россыпи',
     groups: [
       { shape: { type: 'random', count: 8 } },
       { shape: { type: 'random', count: 8 }, delay: 2 },

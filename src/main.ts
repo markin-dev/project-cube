@@ -101,15 +101,15 @@ const speedSwitch = createSpeedSwitch({
 });
 
 // Кнопка звука — в том же ряду, что и кнопки скорости, справа от них.
-const soundSwitch = createSoundSwitch({ container: speedSwitch.container, sound });
+createSoundSwitch({ container: speedSwitch.container, sound });
 
 // Счётчик FPS в правом нижнем углу (fps-counter.ts).
 const fpsCounter = createFpsCounter();
 
-// Проверка «событие произошло на панели настроек, переключателе скорости или кнопке звука?» —
-// такие клики и нажатия не должны перезапускать игру.
+// Проверка «событие произошло на панели настроек или в ряду скорости и звука?» — такие клики
+// и нажатия не должны перезапускать игру.
 const isUiTarget = (target: EventTarget | null): boolean =>
-  settingsPanel.isPanelTarget(target) || speedSwitch.isSwitchTarget(target) || soundSwitch.isSwitchTarget(target);
+  settingsPanel.isPanelTarget(target) || speedSwitch.isSwitchTarget(target);
 
 // После конца игры клик или пробел начинают её заново со стартовой волны.
 const restartGame = (): void => {

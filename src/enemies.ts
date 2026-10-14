@@ -153,7 +153,7 @@ export const damageEnemy = (enemy: Enemy, damage: number): void => {
   setHpBarValue(enemy.hpBar, enemy.hp / enemy.kind.hp);
 };
 
-// Каждый кадр враги с опорой под ногами (полом или ярусом кучи — см. isEnemySupported)
+// Каждый шаг враги с опорой под ногами (полом или ярусом кучи — см. isEnemySupported)
 // разгоняются к центру арены, где стоит игрок. Враг на вершине кучи тоже управляем: он ползёт
 // по куче к центру и сползает с неё, вместо того чтобы лежать статуей и давить на нижних.
 // Скорость раскладывается на две ортогональные составляющие:
@@ -161,11 +161,10 @@ export const damageEnemy = (enemy: Enemy, damage: number): void => {
 //     config.ENEMY_ACCELERATION × delta;
 //   касательная — вдоль кольца вокруг центра (то, что задают удары пули и соседи): НЕ трогается,
 //     только мягко гасится экспоненциально с config.ENEMY_TANGENTIAL_DAMPING.
-// Так сделано специально отдельно: раньше обе составляющие загонялись в «чистый радиальный ход»
-// общим бюджетом ускорения — кольцо врагов теряло возможность скольжения друг мимо друга и
-// замыкалось в неподвижной стопке (расстрел такой кучи был расстрелом статуи).
+// Составляющие раздельно, чтобы кольцо врагов могло скользить друг мимо друга, а не замыкалось
+// в неподвижной стопке.
 // Скорость не задаётся жёстко, а меняется постепенно — иначе любой толчок от удара гасился бы
-// в следующем же кадре. Враг в воздухе не управляется.
+// на следующем же шаге. Враг в воздухе не управляется.
 export const moveEnemies = (world: RAPIER.World, enemies: Enemies, delta: number): void => {
   for (const enemy of enemies.values()) {
     const { body } = enemy;
@@ -192,7 +191,7 @@ export const moveEnemies = (world: RAPIER.World, enemies: Enemies, delta: number
     const tangentialSpeed = velocity.x * tangentialX + velocity.z * tangentialZ;
 
     // Радиальная составляющая: сколько добавить, чтобы идти к центру с config.ENEMY_SPEED,
-    // но не больше, чем разрешает ускорение за кадр.
+    // но не больше, чем разрешает ускорение за шаг.
     // Пол каждый шаг снимает со скользящего врага до ENEMY_FRICTION × GRAVITY скорости. Когда враг
     // стоит или уже движется в сторону разгона, трение мешает — его компенсируем, иначе при
     // ускорении ниже ~5.9 м/с² враг не сдвинулся бы с места. Когда враг скользит против
@@ -205,7 +204,7 @@ export const moveEnemies = (world: RAPIER.World, enemies: Enemies, delta: number
     const newRadialSpeed = radialSpeed + clampedRadialChange;
 
     // Касательная составляющая: показательное затухание — за секунду скорость теряет долю
-    // ENEMY_TANGENTIAL_DAMPING. Math.max(0, …) — при редком кадре (большой delta) множитель
+    // ENEMY_TANGENTIAL_DAMPING. Math.max(0, …) — при длинном шаге (большой delta) множитель
     // не должен уйти в минус и развернуть скорость вспять.
     const newTangentialSpeed = tangentialSpeed * Math.max(0, 1 - config.ENEMY_TANGENTIAL_DAMPING * delta);
 

@@ -14,9 +14,8 @@ type DamageNumberParams = {
   position: THREE.Vector3;
   damage: number;
 
-  // Критическое ли это попадание: крит-число показывается другим цветом (DAMAGE_NUMBER_CRIT_COLOR)
-  // и увеличенным кеглем (DAMAGE_NUMBER_CRIT_FONT_SCALE). Флаг запомнен в снаряде при выстреле
-  // (см. Projectile.isCrit) и донесён сюда из applyHit.
+  // Критическое ли это попадание: крит-число другого цвета (DAMAGE_NUMBER_CRIT_COLOR)
+  // и крупнее (DAMAGE_NUMBER_CRIT_FONT_SCALE).
   isCrit?: boolean;
 };
 
