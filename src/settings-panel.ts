@@ -17,6 +17,7 @@ import {
   ENEMY_KIND_NAMES,
   MIN_FIRE_INTERVAL,
   type Config,
+  type EnemyKind,
   type EnemyKindName,
 } from './config';
 import {
@@ -65,12 +66,13 @@ type Section = {
   isWithEnemyKinds?: boolean;
 };
 
-const SECTIONS: Section[] = [
+export const SECTIONS: Section[] = [
   {
     title: 'Арена и волны',
     settings: [
       { key: 'ARENA_SIZE', label: 'Размер арены, м', min: 12, max: 60, step: 1, apply: 'reload' },
       { key: 'SAFE_RADIUS', label: 'Безопасная зона (радиус), м', min: 0, max: 14, step: 0.5, apply: 'nextWave' },
+      { key: 'ARENA_INSET', label: 'Отступ спавна от стены, м', min: 0, max: 5, step: 0.1, apply: 'nextWave' },
       { key: 'DEATH_WALL_HEIGHT', label: 'Высота границы, м', min: 0, max: 10, step: 0.1 },
       { key: 'DEATH_WALL_OPACITY', label: 'Непрозрачность границы', min: 0, max: 1, step: 0.05 },
       { key: 'DEATH_CEILING_HEIGHT', label: 'Потолок смерти, м', min: 2, max: 40, step: 0.5 },
@@ -170,7 +172,7 @@ const SECTIONS: Section[] = [
   },
 ];
 
-const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
+export const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
   { key: 'BACKGROUND_COLOR', label: 'Фон' },
   { key: 'FLOOR_COLOR', label: 'Пол' },
   { key: 'PLAYER_COLOR', label: 'Игрок' },
@@ -224,15 +226,32 @@ const addLegend = (gui: GUI): void => {
   gui.$children.prepend(legend);
 };
 
+// Числовое поле типа врага и его ползунок.
+type KindSetting = {
+  key: Exclude<keyof EnemyKind, 'color'>;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+};
+
+// Числовые параметры типа врага — одинаковые для всех типов, применяются к новым врагам.
+export const KIND_SETTINGS: KindSetting[] = [
+  { key: 'size', label: 'Размер, м', min: 0.2, max: 3, step: 0.05 },
+  { key: 'mass', label: 'Масса, кг', min: 0.05, max: 20, step: 0.05 },
+  { key: 'hp', label: 'HP', min: 1, max: 1000, step: 1 },
+];
+
 // Папки «Типы врагов»: у каждого типа размер, масса, HP (для новых врагов) и цвет (сразу).
 const addEnemyKinds = (folder: GUI): void => {
   for (const name of ENEMY_KIND_NAMES) {
     const kind = config.ENEMY_KINDS[name];
     const kindFolder = folder.addFolder(KIND_TITLES[name]);
 
-    kindFolder.add(kind, 'size', 0.2, 3, 0.05).name(`Размер, м${APPLY_SUFFIXES.newEnemies}`);
-    kindFolder.add(kind, 'mass', 0.05, 20, 0.05).name(`Масса, кг${APPLY_SUFFIXES.newEnemies}`);
-    kindFolder.add(kind, 'hp', 1, 1000, 1).name(`HP${APPLY_SUFFIXES.newEnemies}`);
+    for (const { key, label, min, max, step } of KIND_SETTINGS) {
+      kindFolder.add(kind, key, min, max, step).name(`${label}${APPLY_SUFFIXES.newEnemies}`);
+    }
+
     kindFolder.addColor(kind, 'color').name('Цвет');
   }
 };
@@ -273,10 +292,27 @@ const addWavePicker = (gui: GUI, onStartWave: (waveIndex: number) => void): ((wa
 };
 
 // Описание типа звука для раздела «Звук»: подпись папки и куда писать его громкость и мут в конфиге.
-const SOUND_TYPE_SETTINGS: Array<{ type: SoundType; title: string; volumeKey: NumberKey; mutedKey: BooleanKey }> = [
+type SoundTypeSetting = {
+  type: SoundType;
+  title: string;
+  volumeKey: NumberKey;
+  mutedKey: BooleanKey;
+};
+
+export const SOUND_TYPE_SETTINGS: SoundTypeSetting[] = [
   { type: 'hit', title: 'Попадание', volumeKey: 'HIT_VOLUME', mutedKey: 'HIT_MUTED' },
   { type: 'shot', title: 'Выстрел', volumeKey: 'SHOT_VOLUME', mutedKey: 'SHOT_MUTED' },
   { type: 'death', title: 'Смерть', volumeKey: 'DEATH_VOLUME', mutedKey: 'DEATH_MUTED' },
+];
+
+// Все параметры конфига, которые показывает панель. Тест (unit/settings-panel.test.ts) сверяет их
+// с DEFAULT_CONFIG, чтобы новый параметр не остался без ползунка.
+export const PANEL_CONFIG_KEYS: Array<keyof Config> = [
+  ...SECTIONS.flatMap(({ settings }) => settings.map(({ key }) => key)),
+  'ENEMY_KINDS',
+  'SOUND_VOLUME',
+  ...SOUND_TYPE_SETTINGS.flatMap(({ volumeKey, mutedKey }) => [volumeKey, mutedKey]),
+  ...COLOR_SETTINGS.map(({ key }) => key),
 ];
 
 // Раздел «Звук»: общая громкость и на каждый тип — своя папка с тремя настройками:

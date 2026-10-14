@@ -1,19 +1,18 @@
-// Общие хелперы для browser-mode E2E-тестов (Фаза 2 миграции).
-//
-// Игровой цикл идёт в реальном времени (requestAnimationFrame), поэтому появление врагов, попаданий
-// и цифр урона мы ждём опросом условия каждые 100 мс, а не фиксированной паузой.
+// Общие хелперы для browser-mode E2E-тестов. Игровой цикл идёт в реальном времени
+// (requestAnimationFrame), поэтому события игры ждём опросом условия каждые 100 мс.
+import type { Enemies } from '../src/enemies';
 
-// Тестовый доступ к состоянию игры (DEV-хук window.__game в main.ts): { enemies }.
-export type Game = { enemies: Map<unknown, { hp: number }> };
+// Тестовый доступ к игре — DEV-хук window.__game в main.ts.
+export type GameAccess = { enemies: Enemies };
 
-export const game = (): Game | undefined => (window as typeof window & { __game?: Game }).__game;
+const isGameHolder = (value: object): value is { __game: GameAccess } => '__game' in value;
+
+export const getGame = (): GameAccess | undefined => (isGameHolder(window) ? window.__game : undefined);
+
+export const getEnemiesCount = (): number => getGame()?.enemies.size ?? 0;
 
 // Ждёт, пока условие станет истинным. Бросает понятную ошибку, если не дождались.
-export const waitUntil = async (
-  predicate: () => boolean,
-  timeoutMs = 15000,
-  what = 'условие',
-): Promise<void> => {
+export const waitUntil = async (predicate: () => boolean, timeoutMs = 15000, what = 'условие'): Promise<void> => {
   const start = performance.now();
 
   while (performance.now() - start < timeoutMs) {
@@ -27,6 +26,12 @@ export const waitUntil = async (
   throw new Error(`waitUntil: ${what} не наступило за ${timeoutMs} мс`);
 };
 
-// Сколько сейчас цифр урона на экране (всех или только критических).
-export const damageNumbers = (onlyCrit = false): NodeListOf<Element> =>
-  document.querySelectorAll(onlyCrit ? '.damage-number.is-crit' : '.damage-number');
+export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Цифры урона на экране (все или только критические).
+export const getDamageNumbers = (isOnlyCrit = false): NodeListOf<Element> =>
+  document.querySelectorAll(isOnlyCrit ? '.damage-number.is-crit' : '.damage-number');
+
+// Кнопка с текстом text (переключатель скорости, звук).
+export const getButton = (text: string): HTMLButtonElement | undefined =>
+  [...document.querySelectorAll('button')].find((button) => button.textContent === text);

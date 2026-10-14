@@ -1,16 +1,12 @@
 import { defineConfig } from 'vitest/config';
 
-// Конфигурация Vitest для юнит-тестов (Фаза 1 миграции на vitest).
+// Конфигурация Vitest для юнит-тестов (npm run test:unit). Браузерные E2E — в vitest.browser.config.ts.
 //
-// Тесты лежат в unit/ — вне src, чтобы сборочный `tsc` (include: ["src"]) их не компилировал:
-// Vitest транспилирует TS сам, через esbuild, tsc для тестов не нужен.
+// Тесты лежат в unit/, вне src. Vitest транспилирует их сам, а типы проверяет tsc (npm run typecheck,
+// tsconfig.json включает unit/ и browser/).
 //
-// Окружение happy-dom даёт localStorage и минимальный DOM — они нужны config.ts (читает сохранённые
-// изменения при загрузке) и config-storage.ts (работает с localStorage). Остальные тестируемые функции
-// чистые и в DOM не нуждаются, но общее окружение упрощает жизнь.
-//
-// E2E в реальном браузере (vitest browser mode + Playwright) — отдельная Фаза 2, конфиг для неё
-// будет в vitest.browser.config.ts, чтобы юниты и браузерные тесты не мешали друг другу.
+// Окружение happy-dom даёт localStorage и минимальный DOM — их читают config.ts (сохранённые изменения
+// при загрузке), config-storage.ts и панель настроек. Физика — настоящий Rapier, он работает в Node.
 export default defineConfig({
   test: {
     include: ['unit/**/*.test.ts'],
@@ -18,5 +14,12 @@ export default defineConfig({
 
     // Перед каждым тестом конфиг возвращается к значениям из кода (см. unit/setup.ts).
     setupFiles: ['unit/setup.ts'],
+
+    // Покрытие юнитами: npm run test:coverage. Отчёт в терминале — по каждому файлу src/.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      reporter: ['text'],
+    },
   },
 });

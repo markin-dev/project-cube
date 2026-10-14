@@ -1,213 +1,130 @@
-// Юнит-тесты подбора места появления врага (src/spawn-placement.ts).
-//
-// Алгоритм гарантирует: новый враг не появится внутри существующего (иначе физика в первом же
-// шаге выталкивает его с огромной скоростью). Если исходная точка занята — сначала вверх: столб
-// над точкой до потолка смерти, и только потом вбок к ближайшему свободному месту на полу.
-// Так форма при большом множителе растёт вверх, а не распухает в стороны. Второй инвариант —
-// безопасная зона вокруг куба игрока (SAFE_RADIUS): внутрь её радиуса не появляется никто ни при
-// каком условии — ни исходная точка, ни кандидаты поиска, ни ярусы.
-//
-// Врага описываем заглушкой { body: { translation, rotation }, kind: { size } }: подборщику
-// нужны только позиция центра и поворот (тут — единичный кватернион) плюс размер типа.
-import { beforeEach, describe, expect, it } from 'vitest';
-import * as THREE from 'three';
+// Юнит-тесты подбора места появления (src/spawn-placement.ts): новый враг не появляется внутри
+// существующего — сначала столбом вверх над точкой, потом вбок; внутрь безопасной зоны — никогда.
+// Враги — обычного типа (0.8 м), созданные spawnEnemy: подборщик читает их позицию, поворот и размер.
+import { describe, expect, it } from 'vitest';
 import { config } from '../src/config';
+import type { Enemies } from '../src/enemies';
 import { createSpawnPlacer } from '../src/spawn-placement';
-import type { Enemy, Enemies } from '../src/enemies';
+import { addTestEnemy, createTestWorld } from './fixtures';
 
-const SIZE = 1;
+const { world, scene } = await createTestWorld();
 
-// Заглушка врага в позиции (x, y, z) с кубической формой size и нулевым поворотом.
-const enemyAt = (x: number, y: number, z: number, size = SIZE) =>
-  ({
-    body: {
-      translation: () => ({ x, y, z }),
-      rotation: () => ({ x: 0, y: 0, z: 0, w: 1 }),
-    },
-    kind: { size },
-  }) as unknown as Enemy;
+const SIZE = 0.8;
+const HALF = SIZE / 2;
+const GAP = 0.15;
+const LAYER_STEP = SIZE + GAP;
 
-const toEnemies = (...list: Enemy[]): Enemies => new Map(list.map((enemy, index) => [index, enemy]));
+// Список врагов, стоящих в точках points (центр — на полу, если y не задан).
+const createCrowd = (points: Array<{ x: number; y?: number; z: number }>): Enemies => {
+  const enemies: Enemies = new Map();
 
-// Коробки заняты ли пересекаются: две кубические коробки не пересекаются, если хотя бы по одной
-// оси между центрами есть просвет ≥ суммы половин + зазор (как в isFreeInGrid).
-const boxesOverlap = (
-  a: { x: number; y: number; z: number },
-  b: { x: number; y: number; z: number },
-  gap: number,
-): boolean => {
-  const half = SIZE / 2;
-  return (
-    Math.abs(a.x - b.x) < half + half + gap &&
-    Math.abs(a.y - b.y) < half + half + gap &&
-    Math.abs(a.z - b.z) < half + half + gap
-  );
+  points.forEach(({ x, y = HALF, z }) => addTestEnemy({ world, scene, enemies, x, y, z }));
+
+  return enemies;
 };
 
-describe('подбор места появления', () => {
-  beforeEach(() => {
-    config.PLAYER_SIZE = 1;
-    config.SPAWN_GAP = 0.15;
-    config.ARENA_SIZE = 30;
-    config.DEATH_CEILING_HEIGHT = 10;
-    // Зоны нет — эти тесты проверяют только наложения.
+// Точки сетки с шагом step в квадрате ±extent.
+const getGridPoints = (extent: number, step: number): Array<{ x: number; z: number }> => {
+  const coordinates = Array.from({ length: Math.floor((2 * extent) / step) + 1 }, (_, index) => -extent + index * step);
+
+  return coordinates.flatMap((x) => coordinates.map((z) => ({ x, z })));
+};
+
+const place = ({ enemies, x, z }: { enemies: Enemies; x: number; z: number }): number[] =>
+  createSpawnPlacer(enemies)({ point: { x, z }, size: SIZE }).toArray();
+
+describe('подбор места без безопасной зоны', () => {
+  it('Должен поставить врага в исходную точку на пол, если там свободно', () => {
     config.SAFE_RADIUS = 0;
+
+    expect(place({ enemies: new Map(), x: 5, z: 5 })).toEqual([expect.closeTo(5, 5), HALF, expect.closeTo(5, 5)]);
   });
 
-  it('пустая арена: враг появляется в исходной точке на полу (центр на половине роста)', () => {
-    const placer = createSpawnPlacer(toEnemies());
-    const position = placer({ point: { x: 5, z: 5 }, size: SIZE });
+  it('Должен поставить врага ярусом выше, если точка занята', () => {
+    config.SAFE_RADIUS = 0;
 
-    expect(position.x).toBeCloseTo(5, 5);
-    expect(position.z).toBeCloseTo(5, 5);
-    expect(position.y).toBeCloseTo(SIZE / 2, 5);
+    expect(place({ enemies: createCrowd([{ x: 5, z: 5 }]), x: 5, z: 5 })).toEqual([
+      expect.closeTo(5, 5),
+      expect.closeTo(HALF + LAYER_STEP, 5),
+      expect.closeTo(5, 5),
+    ]);
   });
 
-  it('занятая точка: враг появляется НАД ней ярусом выше, а не сдвигается вбок', () => {
-    // Враг уже стоит ровно туда, куда хотим появиться. Порядок поиска — «сначала вверх»: столб
-    // над точкой важнее бокового сдвига, иначе форма при множителе распухала бы в стороны.
-    const existing = enemyAt(5, SIZE / 2, 5);
-    const placer = createSpawnPlacer(toEnemies(existing));
+  it('Должен строить столб из врагов, появляющихся в одной точке', () => {
+    config.SAFE_RADIUS = 0;
 
-    const position = placer({ point: { x: 5, z: 5 }, size: SIZE });
+    const placer = createSpawnPlacer(new Map());
+    const heights = [0, 1, 2].map(() => placer({ point: { x: 5, z: 5 }, size: SIZE }).y);
 
-    const layerStep = SIZE + config.SPAWN_GAP;
-    expect(position.x).toBeCloseTo(5, 5); // ровно над занятой точкой
-    expect(position.z).toBeCloseTo(5, 5);
-    expect(position.y).toBeCloseTo(SIZE / 2 + layerStep, 5); // первый ярус
-    expect(
-      boxesOverlap({ x: position.x, y: position.y, z: position.z }, { x: 5, y: SIZE / 2, z: 5 }, config.SPAWN_GAP),
-    ).toBe(false);
+    expect(heights).toEqual([0, 1, 2].map((layer) => expect.closeTo(HALF + layer * LAYER_STEP, 5)));
   });
 
-  it('подборщик занимает место: повторные враги строятся столбом друг над другом', () => {
-    const placer = createSpawnPlacer(toEnemies());
+  it('Должен уйти вбок без наложения, только когда столб дорос до потолка', () => {
+    config.SAFE_RADIUS = 0;
 
-    const positions = [0, 1, 2].map(() => placer({ point: { x: 0, z: 0 }, size: SIZE }));
-    const [first, second, third] = positions;
+    const layersCount = Math.floor((config.DEATH_CEILING_HEIGHT - SIZE) / LAYER_STEP) + 1;
+    const heights = Array.from({ length: layersCount }, (_, layer) => HALF + layer * LAYER_STEP);
+    const column = createCrowd(heights.map((y) => ({ x: 5, y, z: 5 })));
+    const [x, , z] = place({ enemies: column, x: 5, z: 5 });
 
-    // Все трое в одной точке плана: столб растёт вверх, а не в стороны — это и есть
-    // «высокая фигура» при большом множителе.
-    for (const position of positions) {
-      expect(position.x).toBeCloseTo(0, 5);
-      expect(position.z).toBeCloseTo(0, 5);
+    expect(Math.max(Math.abs(x - 5), Math.abs(z - 5))).toBeGreaterThanOrEqual(LAYER_STEP - 1e-9);
+  });
+
+  it('Должен учитывать поворот врага: угол повёрнутого куба торчит дальше', () => {
+    config.SAFE_RADIUS = 0;
+
+    const enemies = createCrowd([{ x: 5, z: 5 }]);
+    const angle = Math.PI / 8;
+
+    // Поворот на 45° вокруг вертикали: без учёта поворота точка в 1 м сбоку была бы свободна (нужно 0.95).
+    for (const { body } of enemies.values()) {
+      body.setRotation({ x: 0, y: Math.sin(angle), z: 0, w: Math.cos(angle) }, true);
     }
-    expect(second.y).toBeCloseTo(first.y + SIZE + config.SPAWN_GAP, 5);
-    expect(third.y).toBeCloseTo(second.y + SIZE + config.SPAWN_GAP, 5);
 
-    // И коробки при этом не пересекаются.
-    expect(boxesOverlap(first, second, config.SPAWN_GAP)).toBe(false);
-    expect(boxesOverlap(second, third, config.SPAWN_GAP)).toBe(false);
+    expect(place({ enemies, x: 6, z: 5 })[1]).toBeCloseTo(HALF + LAYER_STEP, 5);
   });
 
-  it('столб под точкой дошёл до потолка — только теперь враг уходит вбок', () => {
-    // Собираем столб из всех ярусов над точкой: потолок 10, рост 1 + зазор 0.15 → 8 ярусов.
-    const layerStep = SIZE + config.SPAWN_GAP;
-    const layersCount = Math.max(1, Math.floor((config.DEATH_CEILING_HEIGHT - SIZE) / layerStep) + 1);
-    const column = Array.from({ length: layersCount }, (_, layer) =>
-      enemyAt(5, SIZE / 2 + layer * layerStep, 5),
-    );
-    const placer = createSpawnPlacer(toEnemies(...column));
-
-    const position = placer({ point: { x: 5, z: 5 }, size: SIZE });
-
-    // Выше некуда — место ищем вбок, а исходная точка плана брошена.
-    expect(Math.hypot(position.x - 5, position.z - 5)).toBeGreaterThan(0);
-    // И это место не пересекается ни с одним членом столба.
-    for (const member of column) {
-      const { x, y, z } = member.body.translation();
-      expect(boxesOverlap({ x: position.x, y: position.y, z: position.z }, { x, y, z }, config.SPAWN_GAP)).toBe(false);
-    }
-  });
-
-  it('тесно на полу: враг поднимается ярусом выше, а не налезает на толпу', () => {
-    // Маленькая арена (±2), так что кольца поиска за её краем отбрасываются. Пол вокруг центра
-    // густо забит сеткой врагов (шаг 0.5 < размера, соседи перекрываются) — свободного места
-    // на полу не остаётся, и подборщик обязан взять первый ярус (y = size/2 + size + gap).
+  it('Должен поставить врага в исходную точку, если свободного места нет', () => {
+    config.SAFE_RADIUS = 0;
     config.ARENA_SIZE = 4;
+    config.DEATH_CEILING_HEIGHT = 1;
 
-    const crowded: Enemy[] = [];
-    for (let x = -2; x <= 2; x += 0.5) {
-      for (let z = -2; z <= 2; z += 0.5) {
-        crowded.push(enemyAt(x, SIZE / 2, z));
-      }
-    }
-    const placer = createSpawnPlacer(toEnemies(...crowded));
+    const crowd = createCrowd(getGridPoints(2, 0.5));
 
-    const position = placer({ point: { x: 0, z: 0 }, size: SIZE });
-
-    const layerStep = SIZE + config.SPAWN_GAP;
-    expect(position.y).toBeCloseTo(SIZE / 2 + layerStep, 5); // первый ярус
-    // И на ярусе выше места коробка свободна от любой из толпы (разница по высоте ≥ суммы полуростов + зазор).
-    for (const other of crowded) {
-      const otherPos = other.body.translation();
-      const isSeparated = Math.abs(position.y - otherPos.y) >= SIZE / 2 + SIZE / 2 + config.SPAWN_GAP;
-      expect(isSeparated).toBe(true);
-    }
+    expect(place({ enemies: crowd, x: 0, z: 0 })).toEqual([expect.closeTo(0, 5), HALF, expect.closeTo(0, 5)]);
   });
 });
 
-describe('безопасная зона вокруг куба', () => {
-  const SAFE = 8;
-
-  beforeEach(() => {
-    config.PLAYER_SIZE = 1;
-    config.SPAWN_GAP = 0.15;
-    config.ARENA_SIZE = 30;
-    config.DEATH_CEILING_HEIGHT = 10;
-    config.SAFE_RADIUS = SAFE;
+describe('безопасная зона', () => {
+  it('Должен прижать точку внутри зоны к её краю, сохранив направление от центра', () => {
+    expect(place({ enemies: new Map(), x: 2, z: 0 })).toEqual([
+      expect.closeTo(config.SAFE_RADIUS + HALF, 5),
+      HALF,
+      expect.closeTo(0, 5),
+    ]);
   });
 
-  it('исходная точка внутри зоны прижимается к её краю, направление от центра сохраняется', () => {
-    const placer = createSpawnPlacer(toEnemies());
-    const position = placer({ point: { x: 2, z: 0 }, size: SIZE });
+  it('Должен вынести точку из центра арены на край зоны', () => {
+    const [x, , z] = place({ enemies: new Map(), x: 0, z: 0 });
 
-    // Радиус края зоны — safeRadius + половинаSize (весь куб врага за границей).
-    expect(Math.hypot(position.x, position.z)).toBeCloseTo(SAFE + SIZE / 2, 5);
-    expect(position.x).toBeGreaterThan(0);
-    expect(position.z).toBeCloseTo(0, 5);
-    expect(position.y).toBeCloseTo(SIZE / 2, 5);
+    expect(Math.hypot(x, z)).toBeCloseTo(config.SAFE_RADIUS + HALF, 5);
   });
 
-  it('точка ровно в центре арены выносится на границу зоны, а не остаётся в центре', () => {
-    const placer = createSpawnPlacer(toEnemies());
-    const position = placer({ point: { x: 0, z: 0 }, size: SIZE });
+  it('Должен не искать свободное место внутри зоны, даже если там пусто', () => {
+    // Весь пол вне зоны занят, свободен только «карман» внутри неё — подборщик обязан его обойти.
+    const crowd = createCrowd(getGridPoints(14, 0.7).filter(({ x, z }) => Math.hypot(x, z) >= config.SAFE_RADIUS));
+    const [x, , z] = place({ enemies: crowd, x: 2, z: 0 });
 
-    expect(Math.hypot(position.x, position.z)).toBeCloseTo(SAFE + SIZE / 2, 5);
+    expect(Math.hypot(x, z)).toBeGreaterThanOrEqual(config.SAFE_RADIUS + HALF - 1e-9);
   });
 
-  it('поиск свободного места не залезает в зону, даже если там пусто', () => {
-    // Весь пол арены занят (сетка 0.7), кроме «кармана» внутри безопасной зоны. Исходная точка
-    // (2, 0) прижата к краю зоны и занята толпой; ближайшие свободные места поиска — в кармане
-    // внутри зоны. Подборщик обязан обойти их и поднять врага ярусом на краю зоны.
-    const crowded: Enemy[] = [];
-    for (let x = -14; x <= 14; x += 0.7) {
-      for (let z = -14; z <= 14; z += 0.7) {
-        if (Math.hypot(x, z) >= SAFE) {
-          crowded.push(enemyAt(x, SIZE / 2, z));
-        }
-      }
-    }
-    const placer = createSpawnPlacer(toEnemies(...crowded));
-
-    const position = placer({ point: { x: 2, z: 0 }, size: SIZE });
-
-    // Ни один кандидат внутри зоны не взят: враг стоит не ближе её края.
-    expect(Math.hypot(position.x, position.z)).toBeGreaterThanOrEqual(SAFE + SIZE / 2 - 1e-9);
-    // И поднялся ярусом — на полу места не было.
-    expect(position.y).toBeGreaterThan(SIZE / 2);
-  });
-
-  it('зона больше арены ужимается до радиуса, при котором у стены остаётся кольцо', () => {
+  it('Должен ужать зону больше арены, чтобы у стены осталось кольцо', () => {
     config.ARENA_SIZE = 12;
     config.SAFE_RADIUS = 50;
 
-    const placer = createSpawnPlacer(toEnemies());
-    const position = placer({ point: { x: 0, z: 0 }, size: SIZE });
+    const [x, , z] = place({ enemies: new Map(), x: 0, z: 0 });
 
-    // Эффективный радиус = арена/2 − size = 5, край зоны = 5 + size/2 — и точно внутри арены.
-    expect(Math.hypot(position.x, position.z)).toBeCloseTo(5 + SIZE / 2, 5);
-    expect(Math.abs(position.x)).toBeLessThanOrEqual(config.ARENA_SIZE / 2);
-    expect(Math.abs(position.z)).toBeLessThanOrEqual(config.ARENA_SIZE / 2);
+    // Эффективный радиус зоны = арена/2 − размер = 5.2, край — ещё на полкуба дальше.
+    expect(Math.hypot(x, z)).toBeCloseTo(5.2 + HALF, 5);
   });
 });

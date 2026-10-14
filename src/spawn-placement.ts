@@ -93,6 +93,10 @@ const getCubeBox = ({ x, y, z, size }: Point & { y: number; size: number }): Box
 // Сторона клетки, м. Чуть больше самого крупного врага: тогда коробка обычно попадает в 1–4 клетки.
 const GRID_CELL_SIZE = 2;
 
+// Допуск при сравнении расстояний, м. Rapier хранит позиции во float32: враг, поставленный на 0.4,
+// стоит на 0.40000000596, и ярус ровно над ним (касание на зазоре) иначе считался бы занятым.
+const SEPARATION_TOLERANCE = 1e-4;
+
 // Номер клетки — пара целых чисел (по X и по Z). Для ключа Map склеиваем их в одно число:
 // сдвигаем, чтобы отрицательные номера стали положительными, и умножаем первый на большой шаг.
 const GRID_INDEX_OFFSET = 10_000;
@@ -149,9 +153,9 @@ const isFreeInGrid = ({ grid, box, gap }: { grid: Grid; box: Box; gap: number })
 
       for (const other of cell) {
         const isSeparated =
-          Math.abs(box.x - other.x) >= box.halfX + other.halfX + gap ||
-          Math.abs(box.y - other.y) >= box.halfY + other.halfY + gap ||
-          Math.abs(box.z - other.z) >= box.halfZ + other.halfZ + gap;
+          Math.abs(box.x - other.x) >= box.halfX + other.halfX + gap - SEPARATION_TOLERANCE ||
+          Math.abs(box.y - other.y) >= box.halfY + other.halfY + gap - SEPARATION_TOLERANCE ||
+          Math.abs(box.z - other.z) >= box.halfZ + other.halfZ + gap - SEPARATION_TOLERANCE;
 
         if (!isSeparated) {
           return false;

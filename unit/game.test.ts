@@ -1,14 +1,13 @@
 // Юнит-тесты игровой логики (src/game.ts) на headless-Rapier: волны и группы, лимит появлений,
 // стрельба, попадания, победа и поражение. HUD, звук и цифры урона — заглушки vi.fn.
-import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../src/config';
 import type { Enemies } from '../src/enemies';
 import { createGame, type Game } from '../src/game';
-import { createPhysics } from '../src/physics';
 import { createPlayer } from '../src/player';
 import { createSparks } from '../src/sparks';
 import type { Wave } from '../src/waves';
+import { createTestWorld } from './fixtures';
 
 const STEP = 1 / 60;
 
@@ -17,9 +16,16 @@ const ONE_ENEMY_WAVE: Wave = {
   groups: [{ shape: { type: 'random', count: 1 }, enemy: 'normal' }],
 };
 
+const TWO_GROUPS_WAVE: Wave = {
+  name: 'Две группы',
+  groups: [
+    { shape: { type: 'random', count: 1 }, enemy: 'normal' },
+    { shape: { type: 'random', count: 1 }, enemy: 'normal', delay: 100 },
+  ],
+};
+
 const createTestGame = async ({ waves }: { waves: Wave[] }) => {
-  const { world, eventQueue } = await createPhysics();
-  const scene = new THREE.Scene();
+  const { world, eventQueue, scene } = await createTestWorld();
   const hud = { setWave: vi.fn(), setGroup: vi.fn(), showEndScreen: vi.fn(), hideEndScreen: vi.fn() };
   const showDamageNumber = vi.fn();
 
@@ -47,7 +53,7 @@ const runSteps = (game: Game, count: number): void => {
 };
 
 // Шагает, пока условие не выполнится, но не дольше maxSeconds игрового времени.
-const runUntil = (game: Game, isDone: () => boolean, maxSeconds: number): void => {
+const runUntil = ({ game, isDone, maxSeconds }: { game: Game; isDone: () => boolean; maxSeconds: number }): void => {
   Array.from({ length: Math.round(maxSeconds / STEP) }).some((): boolean => {
     game.update(STEP);
 
@@ -64,11 +70,21 @@ const pushOutOfArena = (enemies: Enemies): void => {
 
 afterEach(() => vi.clearAllMocks());
 
-describe('волны', () => {
-  it('Должен показать номер и название стартовой волны', async () => {
-    const { hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_ENEMY_WAVE] });
+it('Должен показать номер и название стартовой волны', async () => {
+  const { hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_ENEMY_WAVE] });
 
-    expect(hud.setWave).toHaveBeenCalledWith({ number: 1, total: 2, name: 'Один' });
+  expect(hud.setWave).toHaveBeenCalledWith({ number: 1, total: 2, name: 'Один' });
+});
+
+describe('группы волны', () => {
+  it('Должен начать следующую группу раньше её delay, если предыдущие убиты', async () => {
+    const { game } = await createTestGame({ waves: [TWO_GROUPS_WAVE] });
+
+    runSteps(game, 1);
+    pushOutOfArena(game.enemies);
+    runSteps(game, 2);
+
+    expect(game.state.groups[1].startTime).toBeLessThan(1);
   });
 
   it('Должен выпустить группу без задержки на первом шаге', async () => {
@@ -92,27 +108,9 @@ describe('волны', () => {
 
     expect(game.enemies.size).toBe(10);
   });
+});
 
-  it('Должен начать следующую группу раньше её delay, если предыдущие убиты', async () => {
-    const { game } = await createTestGame({
-      waves: [
-        {
-          name: 'Две группы',
-          groups: [
-            { shape: { type: 'random', count: 1 }, enemy: 'normal' },
-            { shape: { type: 'random', count: 1 }, enemy: 'normal', delay: 100 },
-          ],
-        },
-      ],
-    });
-
-    runSteps(game, 1);
-    pushOutOfArena(game.enemies);
-    runSteps(game, 2);
-
-    expect(game.state.groups[1].startTime).toBeLessThan(1);
-  });
-
+describe('конец волны', () => {
   it('Должен перейти к следующей волне, когда враги текущей убиты', async () => {
     const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_ENEMY_WAVE] });
 
@@ -133,13 +131,17 @@ describe('волны', () => {
     expect(game.state.status).toBe('won');
   });
 
-  it('Должен очистить арену при новом старте', async () => {
-    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+  it('Должен показать экран победы с верными параметрами', async () => {
+    const { game, hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
 
     runSteps(game, 1);
-    game.startGame();
+    pushOutOfArena(game.enemies);
+    runSteps(game, 1);
 
-    expect(game.enemies.size).toBe(0);
+    expect(hud.showEndScreen).toHaveBeenCalledWith({
+      title: 'Победа!',
+      hint: 'Все волны пройдены. Нажми, чтобы сыграть ещё раз',
+    });
   });
 });
 
@@ -155,7 +157,7 @@ describe('бой', () => {
   it('Должен показать цифру урона при попадании', async () => {
     const { game, showDamageNumber } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
 
-    runUntil(game, () => showDamageNumber.mock.calls.length > 0, 3);
+    runUntil({ game, isDone: () => showDamageNumber.mock.calls.length > 0, maxSeconds: 3 });
 
     expect(showDamageNumber).toHaveBeenCalled();
   });
@@ -169,8 +171,33 @@ describe('бой', () => {
       body.setTranslation({ x: 0.8, y: 0.4, z: 0 }, true);
     }
 
-    runUntil(game, () => game.state.status !== 'playing', 1);
+    runUntil({ game, isDone: () => game.state.status !== 'playing', maxSeconds: 1 });
 
     expect(game.state.status).toBe('lost');
   });
+});
+
+describe('update', () => {
+  it('Не должен двигать время волны после конца игры', async () => {
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    runSteps(game, 1);
+    pushOutOfArena(game.enemies);
+    runSteps(game, 1);
+
+    const finishedAt = game.state.waveTime;
+
+    runSteps(game, 10);
+
+    expect(game.state.waveTime).toBe(finishedAt);
+  });
+});
+
+it('startGame: Должен очистить арену', async () => {
+  const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+  runSteps(game, 1);
+  game.startGame();
+
+  expect(game.enemies.size).toBe(0);
 });

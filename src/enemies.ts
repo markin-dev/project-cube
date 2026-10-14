@@ -84,8 +84,8 @@ export const isEnemyAboveCeiling = ({ body }: Pick<Enemy, 'body'>): boolean =>
 // пол твёрдый, и центр стоящего врага не ниже половины его роста. Значит, враг сорвался с края арены.
 export const isEnemyBelowFloor = ({ body }: Pick<Enemy, 'body'>): boolean => body.translation().y < 0;
 
-// Создаёт врага типа kindName с центром в position. Где и какого типа — решает описание волны
-// (src/waves.ts, src/patterns.ts), а высоту — поиск свободного места (src/spawn-placement.ts):
+// Создаёт врага типа kindName с центром в position и возвращает его. Где и какого типа — решает описание
+// волны (src/waves.ts, src/patterns.ts), а высоту — поиск свободного места (src/spawn-placement.ts):
 // обычно враг стоит на полу (центр на половине роста), но в тесноте может появиться ярусом выше и упасть.
 export const spawnEnemy = ({
   world,
@@ -93,7 +93,7 @@ export const spawnEnemy = ({
   entities,
   position,
   kindName,
-}: EntityContext<Enemy> & { position: THREE.Vector3Like; kindName: EnemyKindName }): void => {
+}: EntityContext<Enemy> & { position: THREE.Vector3Like; kindName: EnemyKindName }): Enemy => {
   const { x, y, z } = position;
   const kind = { ...config.ENEMY_KINDS[kindName] };
   const { size, mass, hp } = kind;
@@ -140,7 +140,11 @@ export const spawnEnemy = ({
   object.position.copy(body.translation());
   scene.add(object);
 
-  entities.set(collider.handle, { body, object, cube, kind, hp, hpBar });
+  const enemy: Enemy = { body, object, cube, kind, hp, hpBar };
+
+  entities.set(collider.handle, enemy);
+
+  return enemy;
 };
 
 // Отнимает здоровье и обновляет полоску. Что делать с погибшим (hp <= 0) — решает вызывающий код.

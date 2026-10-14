@@ -313,7 +313,8 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
       const spark = sparks[index];
 
       if (spark.alive) {
-        mesh.setMatrixAt(index, MATRIX.compose(spark.position, spark.orientation, SCALE.setScalar(getSparkScale(spark))));
+        SCALE.setScalar(getSparkScale(spark));
+        mesh.setMatrixAt(index, MATRIX.compose(spark.position, spark.orientation, SCALE));
       }
     }
 

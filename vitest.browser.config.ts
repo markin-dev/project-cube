@@ -1,16 +1,12 @@
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 
-// Конфигурация Vitest Browser Mode + Playwright (Фаза 2 миграции E2E).
+// Конфигурация Vitest Browser Mode + Playwright (npm run test:e2e): тесты из browser/ идут в настоящем
+// chromium — там, где нужен реальный браузер: WebGL, Web Audio, DOM интерфейса, раскладка.
 //
-// В отличие от юнит-тестов (vitest.config.ts, окружение node), здесь тесты идут в НАСТОЯЩЕМ chromium,
-// который Playwright запускает. Это нужно для E2E, которые без браузера проверить нельзя: реальный
-// WebGL (рендер сцены, крит-цифры, искры) и Web Audio (автоматизация гейнов звука).
-//
-// МОДЕЛЬ ОТЛИЧАЕТСЯ от старых CDP-скриптов: vitest не «открывает URL приложения и гоняет его как бот».
-// Вместо этого тест-файл исполняется прямо в тестовой странице браузера, а игру мы ЗАВОДИМ ИМПОРТОМ
-// её точки входа (import '../src/main'). main.ts — модуль с top-level await: он создаёт физику, сцену,
-// расставляет UI и запускает игровой цикл в текущей странице, выставляя window.__game (DEV-хук).
+// Тест-файл исполняется прямо в тестовой странице, а игру заводим импортом точки входа
+// (import '../src/main'): модуль с top-level await сам поднимает физику, сцену, интерфейс и цикл
+// и выставляет window.__game (DEV-хук).
 //
 // headless: true — без окна. Флаги --enable-unsafe-swiftshader и --use-angle=swiftshader нужны, чтобы
 // WebGL работал на программном рендерере (в headless нет GPU).
@@ -20,6 +16,14 @@ export default defineConfig({
     // Browser mode гоняет каждый файл в отдельной странице, но страниц у нас одна — файлы идут по очереди.
     fileParallelism: false,
     testTimeout: 30000,
+
+    // Покрытие E2E: npm run test:coverage:e2e — показывает, что из интерфейса, звука и main.ts
+    // проверено в браузере (юниты эти модули почти не трогают).
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      reporter: ['text'],
+    },
     browser: {
       enabled: true,
       headless: true,
