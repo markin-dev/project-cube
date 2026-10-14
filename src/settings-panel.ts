@@ -28,7 +28,9 @@ import {
   getChanges,
   saveChanges,
 } from './config-storage';
+import { MAX_GLOW_LIGHTS, SHADOW_MAP_SIZE_OPTIONS } from './lighting';
 import { watchNarrowScreen } from './layout';
+import { TONE_MAPPING_OPTIONS } from './scene';
 import { SOUND_SETS, type Sound, type SoundType } from './sound';
 import { WAVES } from './waves';
 
@@ -58,9 +60,33 @@ type NumberSetting = {
   apply?: ApplyMode;
 };
 
+// Имя любого поля конфига, кроме вложенного объекта ENEMY_KINDS (он разворачивается в папки
+// с типами врагов). Нужно селектам: их значения бывают и числами, и строками.
+type SettingKey = Exclude<keyof Config, 'ENEMY_KINDS'>;
+
+// Чекбокс: поле-переключатель true/false (например, включены ли тени).
+type BooleanSetting = {
+  key: BooleanKey;
+  label: string;
+};
+
+// Селект: поле с готовым списком значений — для того, что нельзя описать диапазоном, как у ползунка:
+// степени двойки для карты теней или режимы тонмаппинга.
+type SelectSetting = {
+  key: SettingKey;
+  label: string;
+
+  // Подпись варианта в списке → значение, которое запишется в конфиг.
+  options: Record<string, string | number>;
+};
+
 type Section = {
   title: string;
   settings: NumberSetting[];
+
+  // Чекбоксы и селекты рисуются после ползунков — в конце раздела.
+  booleans?: BooleanSetting[];
+  selects?: SelectSetting[];
 
   // Добавить в раздел вложенные папки с типами врагов.
   isWithEnemyKinds?: boolean;
@@ -104,6 +130,7 @@ export const SECTIONS: Section[] = [
       { key: 'CRIT_MULTIPLIER', label: 'Множитель урона', min: 1, max: 10, step: 0.1 },
       { key: 'CRIT_MASS_MULTIPLIER', label: 'Множитель массы пули', min: 1, max: 10, step: 0.1 },
       { key: 'CRIT_PROJECTILE_SIZE_MULTIPLIER', label: 'Множитель размера пули', min: 1, max: 3, step: 0.1 },
+      { key: 'CRIT_PROJECTILE_GLOW_MULTIPLIER', label: 'Крит: множитель свечения пули', min: 0, max: 6, step: 0.1 },
     ],
   },
   {
@@ -168,7 +195,44 @@ export const SECTIONS: Section[] = [
       { key: 'SPARKS_CRIT_COUNT_MULTIPLIER', label: 'Крит: множитель искр', min: 0, max: 10, step: 0.5 },
       { key: 'SPARKS_CRIT_SIZE_MULTIPLIER', label: 'Крит: множитель размера', min: 0.5, max: 5, step: 0.1 },
       { key: 'SPARKS_CRIT_SPEED_MULTIPLIER', label: 'Крит: множитель скорости', min: 0.5, max: 5, step: 0.1 },
+      { key: 'SPARKS_CRIT_GLOW_MULTIPLIER', label: 'Крит: множитель свечения искр', min: 0, max: 30, step: 0.5 },
     ],
+  },
+  {
+    title: 'Свет и тени',
+    settings: [
+      { key: 'SUN_INTENSITY', label: 'Яркость солнца', min: 0, max: 6, step: 0.1 },
+      { key: 'SUN_ELEVATION', label: 'Солнце: высота, °', min: 5, max: 90, step: 1 },
+      { key: 'SUN_AZIMUTH', label: 'Солнце: направление, °', min: 0, max: 360, step: 5 },
+      { key: 'HEMISPHERE_INTENSITY', label: 'Яркость рассеянного света', min: 0, max: 6, step: 0.1 },
+      { key: 'SHADOW_STRENGTH', label: 'Тень: непрозрачность', min: 0, max: 1, step: 0.05 },
+      { key: 'SHADOW_CAMERA_SIZE', label: 'Тень: охват, м', min: 5, max: 60, step: 1 },
+      { key: 'SHADOW_BIAS', label: 'Тень: сдвиг (bias), м', min: -0.005, max: 0.005, step: 0.0001 },
+      { key: 'SHADOW_NORMAL_BIAS', label: 'Тень: сдвиг по нормали, м', min: 0, max: 0.2, step: 0.005 },
+    ],
+    booleans: [{ key: 'SHADOWS_ENABLED', label: 'Тени включены' }],
+    selects: [{ key: 'SHADOW_MAP_SIZE', label: 'Тень: размер карты, px', options: SHADOW_MAP_SIZE_OPTIONS }],
+  },
+  {
+    title: 'Свет от снарядов',
+    settings: [
+      { key: 'GLOW_LIGHT_COUNT', label: 'Источников', min: 0, max: MAX_GLOW_LIGHTS, step: 1 },
+      { key: 'GLOW_LIGHT_INTENSITY', label: 'Яркость', min: 0, max: 10, step: 0.1 },
+      { key: 'GLOW_LIGHT_DISTANCE', label: 'Радиус света, м', min: 1, max: 30, step: 0.5 },
+    ],
+    booleans: [{ key: 'GLOW_LIGHTS_ENABLED', label: 'Свет от снарядов включён' }],
+  },
+  {
+    title: 'Свечение',
+    settings: [
+      { key: 'PROJECTILE_GLOW', label: 'Свечение снарядов', min: 0, max: 5, step: 0.1 },
+      { key: 'SPARKS_GLOW', label: 'Свечение искр', min: 0, max: 5, step: 0.1 },
+      { key: 'BLOOM_STRENGTH', label: 'Ореол: сила', min: 0, max: 3, step: 0.05 },
+      { key: 'BLOOM_RADIUS', label: 'Ореол: ширина', min: 0, max: 2, step: 0.05 },
+      { key: 'BLOOM_THRESHOLD', label: 'Ореол: порог яркости', min: 0, max: 1, step: 0.05 },
+    ],
+    booleans: [{ key: 'BLOOM_ENABLED', label: 'Ореол (bloom)' }],
+    selects: [{ key: 'TONE_MAPPING', label: 'Тонмаппинг', options: TONE_MAPPING_OPTIONS }],
   },
 ];
 
@@ -185,6 +249,9 @@ export const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
   { key: 'SPARKS_CRIT_COLOR', label: 'Искры (крит)' },
   { key: 'CORPSE_COLOR', label: 'Призраки' },
   { key: 'DEATH_WALL_COLOR', label: 'Граница арены' },
+  { key: 'SUN_COLOR', label: 'Свет: солнце' },
+  { key: 'HEMISPHERE_SKY_COLOR', label: 'Свет: небо' },
+  { key: 'HEMISPHERE_GROUND_COLOR', label: 'Свет: земля' },
 ];
 
 // Названия типов врагов для папок панели. Record с ключом EnemyKindName: TypeScript проверит,
@@ -308,7 +375,11 @@ export const SOUND_TYPE_SETTINGS: SoundTypeSetting[] = [
 // Все параметры конфига, которые показывает панель. Тест (unit/settings-panel.test.ts) сверяет их
 // с DEFAULT_CONFIG, чтобы новый параметр не остался без ползунка.
 export const PANEL_CONFIG_KEYS: Array<keyof Config> = [
-  ...SECTIONS.flatMap(({ settings }) => settings.map(({ key }) => key)),
+  ...SECTIONS.flatMap(({ settings, booleans = [], selects = [] }) => [
+    ...settings.map(({ key }) => key),
+    ...booleans.map(({ key }) => key),
+    ...selects.map(({ key }) => key),
+  ]),
   'ENEMY_KINDS',
   'SOUND_VOLUME',
   ...SOUND_TYPE_SETTINGS.flatMap(({ volumeKey, mutedKey }) => [volumeKey, mutedKey]),
@@ -378,11 +449,21 @@ export const createSettingsPanel = ({
   // Сначала раздел отладки — он нужен чаще всего, чтобы не листать длинный список параметров.
   const setCurrentWave = addWavePicker(gui, onStartWave);
 
-  for (const { title, settings, isWithEnemyKinds } of SECTIONS) {
+  for (const { title, settings, booleans = [], selects = [], isWithEnemyKinds } of SECTIONS) {
     const folder = gui.addFolder(title);
 
     for (const { key, label, min, max, step, apply = 'now' } of settings) {
       folder.add(config, key, min, max, step).name(`${label}${APPLY_SUFFIXES[apply]}`);
+    }
+
+    // Чекбоксы (поле true/false) и селекты (готовый список значений) — как и ползунки, меняют
+    // конфиг напрямую, поэтому действуют сразу и сохраняются в браузере.
+    for (const { key, label } of booleans) {
+      folder.add(config, key).name(label);
+    }
+
+    for (const { key, label, options } of selects) {
+      folder.add(config, key, options).name(label);
     }
 
     if (isWithEnemyKinds) {

@@ -1,4 +1,5 @@
-// Юнит-тесты искр (src/sparks.ts): сколько искр рождается, где, как гаснут и не проваливаются под пол.
+// Юнит-тесты искр (src/sparks.ts): сколько искр рождается, где, как гаснут и не проваливаются под пол,
+// и вспышек попаданий (getBursts) — точек, которые подсвечивает свет от снарядов.
 // Проверяем то, что уходит в отрисовку, — матрицы экземпляров InstancedMesh в сцене.
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
@@ -9,6 +10,9 @@ import { addTestEnemy, createTestWorld } from './fixtures';
 const { world } = await createTestWorld();
 
 const PROJECTILE_POSITION = { x: 3, y: 0.5, z: 0 };
+
+// Сколько вспышек просим у getBursts: больше, чем их рождается в тесте, — чтобы лимит не прятал лишнее.
+const BURST_COUNT = 8;
 
 const createTestSparks = (): { scene: THREE.Scene; sparks: Sparks } => {
   const scene = new THREE.Scene();
@@ -34,7 +38,7 @@ const getVisibleSparkPositions = (scene: THREE.Scene): THREE.Vector3[] => {
 describe('spawn', () => {
   it.each([
     ['обычном', 6, false],
-    ['критическом', 18, true],
+    ['критическом', 36, true],
   ])('Должен при %s попадании выпустить %s искр', (_, expected, isCrit) => {
     const { scene, sparks } = createTestSparks();
 
@@ -83,6 +87,31 @@ describe('spawn', () => {
   });
 });
 
+describe('цвет крит-искр', () => {
+  it('Должен делать цвет крит-искр ярче на SPARKS_CRIT_GLOW_MULTIPLIER', () => {
+    // По одной искре на попадание — чтобы цвет обычной лежал в слоте 0 буфера, критической — в слоте 1.
+    config.SPARKS_COUNT = 1;
+    config.SPARKS_CRIT_COUNT_MULTIPLIER = 1;
+
+    const { scene, sparks } = createTestSparks();
+
+    sparks.spawn({ projectilePosition: PROJECTILE_POSITION });
+    sparks.spawn({ projectilePosition: PROJECTILE_POSITION, isCrit: true });
+
+    const mesh = scene.children.find((child): child is THREE.InstancedMesh => child instanceof THREE.InstancedMesh);
+    const colors = mesh?.instanceColor?.array ?? [];
+
+    // Цвет крит-искры в её слоте буфера (r, g, b подряд) = SPARKS_CRIT_COLOR × множитель свечения.
+    const expected = new THREE.Color(config.SPARKS_CRIT_COLOR).multiplyScalar(config.SPARKS_CRIT_GLOW_MULTIPLIER);
+
+    expect(Array.from(colors.slice(3, 6))).toEqual([
+      expect.closeTo(expected.r, 5),
+      expect.closeTo(expected.g, 5),
+      expect.closeTo(expected.b, 5),
+    ]);
+  });
+});
+
 describe('update', () => {
   it('Должен погасить искры после SPARKS_LIFETIME', () => {
     const { scene, sparks } = createTestSparks();
@@ -115,4 +144,73 @@ it('clear: Должен убрать все искры', () => {
   sparks.sync();
 
   expect(getVisibleSparkPositions(scene)).toHaveLength(0);
+});
+
+describe('getBursts: вспышки попаданий для света', () => {
+  it('Должен отдать вспышку с яркостью 1 сразу после удара', () => {
+    const { sparks } = createTestSparks();
+
+    sparks.spawn({ projectilePosition: PROJECTILE_POSITION });
+
+    const [burst] = sparks.getBursts(BURST_COUNT);
+
+    expect(sparks.getBursts(BURST_COUNT)).toHaveLength(1);
+    expect(burst.brightness).toBe(1);
+    expect([burst.position.x, burst.position.y, burst.position.z]).toEqual([
+      PROJECTILE_POSITION.x,
+      PROJECTILE_POSITION.y,
+      PROJECTILE_POSITION.z,
+    ]);
+  });
+
+  it('Должен гасить вспышку по времени и отсеивать погасшие', () => {
+    const { sparks } = createTestSparks();
+
+    sparks.spawn({ projectilePosition: PROJECTILE_POSITION });
+    sparks.update(config.SPARKS_LIFETIME / 2);
+
+    expect(sparks.getBursts(BURST_COUNT)[0].brightness).toBeCloseTo(0.5, 5);
+
+    sparks.update(config.SPARKS_LIFETIME);
+
+    expect(sparks.getBursts(BURST_COUNT)).toHaveLength(0);
+  });
+
+  it('Должен отдавать вспышки и гасить их, даже когда искры выключены', () => {
+    config.SPARKS_COUNT = 0;
+
+    const { sparks } = createTestSparks();
+
+    sparks.spawn({ projectilePosition: PROJECTILE_POSITION });
+
+    expect(sparks.getBursts(BURST_COUNT)).toHaveLength(1);
+
+    // Пул искр пуст (SPARKS_COUNT = 0), но вспышке света всё равно нужно стареть.
+    sparks.update(config.SPARKS_LIFETIME / 4);
+
+    expect(sparks.getBursts(BURST_COUNT)[0].brightness).toBeCloseTo(0.75, 5);
+  });
+
+  it('Должен отдать не больше count самых свежих вспышек', () => {
+    const { sparks } = createTestSparks();
+
+    sparks.spawn({ projectilePosition: { x: 0, y: 1, z: 0 } });
+    sparks.update(0.1);
+    sparks.spawn({ projectilePosition: { x: 1, y: 1, z: 0 } });
+
+    const bursts = sparks.getBursts(1);
+
+    expect(bursts).toHaveLength(1);
+    expect(bursts[0].brightness).toBe(1);
+    expect(bursts[0].position.x).toBe(1);
+  });
+
+  it('clear: Должен убрать вспышки', () => {
+    const { sparks } = createTestSparks();
+
+    sparks.spawn({ projectilePosition: PROJECTILE_POSITION });
+    sparks.clear();
+
+    expect(sparks.getBursts(BURST_COUNT)).toHaveLength(0);
+  });
 });

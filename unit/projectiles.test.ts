@@ -10,9 +10,11 @@ import {
   fireProjectiles,
   isCritRolled,
   predictPosition,
+  refreshProjectileColor,
   removeFarProjectiles,
   rollDamage,
   runFireTimer,
+  type Projectile,
   type Projectiles,
 } from '@/projectiles';
 import { addTestEnemy, createTestWorld, getHandle } from './fixtures';
@@ -46,6 +48,18 @@ const getVolleysPerSecond = (step: number): number => {
   );
 
   return fireVolley.mock.calls.length / SIMULATED_SECONDS;
+};
+
+// Свечение снаряда (emissiveIntensity его материала): материал общий на все обычные и на все
+// крит-пули, поэтому у меша материала два разных вида. Материал — не Mesh и не Lambert — свечения нет.
+const getGlowIntensity = (projectile: Projectile): number => {
+  const { object } = projectile;
+
+  if (!(object instanceof THREE.Mesh) || !(object.material instanceof THREE.MeshLambertMaterial)) {
+    return 0;
+  }
+
+  return object.material.emissiveIntensity;
 };
 
 afterEach(() => vi.clearAllMocks());
@@ -256,6 +270,26 @@ describe('fireProjectiles', () => {
     const [projectile] = fireAt(enemy).values();
 
     expect(projectile.body.mass()).toBeCloseTo(config.PROJECTILE_MASS * config.CRIT_MASS_MULTIPLIER, 5);
+  });
+
+  it('Должен светить крит-снаряд ярче обычного на CRIT_PROJECTILE_GLOW_MULTIPLIER', () => {
+    config.PROJECTILE_GLOW = 1.5;
+
+    const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 10, y: 0.4, z: 0 });
+
+    // Материалы общие для всех обычных и для всех крит-снарядов — перекрашиваем под тестовые
+    // значения, как это делает панель настроек (applyLiveConfig).
+    config.CRIT_CHANCE = 1;
+    refreshProjectileColor();
+    const [critProjectile] = fireAt(enemy).values();
+
+    config.CRIT_CHANCE = 0;
+    const [normalProjectile] = fireAt(enemy).values();
+
+    expect([getGlowIntensity(normalProjectile), getGlowIntensity(critProjectile)]).toEqual([
+      config.PROJECTILE_GLOW,
+      config.PROJECTILE_GLOW * config.CRIT_PROJECTILE_GLOW_MULTIPLIER,
+    ]);
   });
 });
 

@@ -10,9 +10,11 @@ import { createFpsCounter } from './fps-counter';
 import { createGame, type Game } from './game';
 import { refreshHpBarColors } from './hp-bar';
 import { createHud } from './hud';
+import { setGlowLights, MAX_GLOW_LIGHTS } from './lighting';
 import { createPhysics } from './physics';
 import { createPlayer, refreshPlayerColor } from './player';
-import { refreshProjectileColor } from './projectiles';
+import { createPost } from './post';
+import { getGlowSources, refreshProjectileColor } from './projectiles';
 import { createScene, refreshSceneLook } from './scene';
 import { createSettingsPanel } from './settings-panel';
 import { createSound } from './sound';
@@ -42,7 +44,11 @@ const getStartWaveIndex = (): number => {
 // ─── СОЗДАНИЕ МИРА ───────────────────────────────────────────────────────────
 
 const { world, eventQueue } = await createPhysics();
-const { scene, camera, renderer, deathWalls } = createScene();
+
+// Части сцены нужны целиком, а не по одной: refreshSceneLook (панель настроек) обновляет фон, пол,
+// стенки границы, свет и тени — всё сразу по текущему конфигу.
+const sceneParts = createScene();
+const { scene, camera, renderer } = sceneParts;
 const hud = createHud();
 const playerHandle = createPlayer({ world, scene });
 
@@ -52,10 +58,19 @@ const sparks = createSparks({ scene });
 // Звук: синтез через Web Audio, без ассетов (см. sound.ts).
 const sound = createSound();
 
+// Ореол вокруг ярких мест (bloom) — считается пост-обработкой после сцены (см. post.ts).
+const post = createPost({ renderer, scene, camera });
+
+// Цепочка пост-обработки держит текстуры в размер экрана — при повороте и ресайзе пересобираем их.
+// Canvas и камера меняют размер в своём слушателе (см. scene.ts), здесь это не нужно.
+window.addEventListener('resize', (): void => {
+  post.setSize();
+});
+
 // Применяет изменения из панели настроек, которые игра сама не подхватит: общие материалы перекрашиваем,
 // гравитацию задаём миру, громкость звука перечитываем. Всё остальное код и так читает из config в момент использования.
 const applyLiveConfig = (): void => {
-  refreshSceneLook({ scene, deathWalls });
+  refreshSceneLook(sceneParts);
   refreshPlayerColor();
   refreshEnemyColors();
   refreshProjectileColor();
@@ -175,7 +190,16 @@ renderer.setAnimationLoop((time: number): void => {
   syncCubeRotations(game.corpses);
   turnHpBarsToCamera(game.enemies, camera);
   sparks.sync();
-  renderer.render(scene, camera);
+
+  // Свет от снарядов и искр: пул точечных источников (см. lighting.ts) каждый кадр переезжает на самые
+  // горящие точки — свежие вспышки попаданий и летящие пули. Кандидатов берём с запасом (весь пул),
+  // а распределение по источникам делает setGlowLights: он отберёт самые яркие.
+  setGlowLights(sceneParts.glowLights, [
+    ...sparks.getBursts(MAX_GLOW_LIGHTS),
+    ...getGlowSources(game.projectiles),
+  ]);
+
+  post.render();
 });
 
 // ─── ТЕСТОВЫЙ ДОСТУП ─────────────────────────────────────────────────────────

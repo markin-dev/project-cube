@@ -132,6 +132,11 @@ export const spawnEnemy = ({
   const cube = new THREE.Mesh(ENEMY_GEOMETRY, KIND_MATERIALS[kindName]);
   cube.scale.setScalar(size);
 
+  // Тени: куб отбрасывает тень на пол и на врагов под ним и принимает тени сверху (см. scene.ts).
+  // Полоска здоровья тени не отбрасывает — она тонкая и всегда развёрнута к камере.
+  cube.castShadow = true;
+  cube.receiveShadow = true;
+
   const hpBar = createHpBar();
   hpBar.group.position.y = size / 2 + config.HP_BAR_GAP;
 

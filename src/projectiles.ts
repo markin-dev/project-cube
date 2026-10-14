@@ -4,6 +4,7 @@ import { PROJECTILE_GROUPS } from './collision-groups';
 import { config, MIN_FIRE_INTERVAL } from './config';
 import { isEnemySupported, type Enemies, type Enemy } from './enemies';
 import { removeEntity, type Entities, type Entity, type EntityContext } from './entity';
+import type { GlowSource } from './lighting';
 
 // Снаряд помнит, в какого врага его выпустили, — чтобы не стрелять во врага,
 // которого уже добьют летящие в него снаряды (см. findTargets), и свой урон — он бросается
@@ -27,14 +28,27 @@ export type Target = {
 };
 
 // Геометрия — куб со стороной 1, размер пули задаётся масштабом меша: так PROJECTILE_SIZE из панели
-// настроек применяется к новым пулям без пересоздания геометрии. Материал общий — цвет меняется на ходу.
+// настроек применяется к новым пулям без пересоздания геометрии. Материал общий — цвет и свечение
+// (emissive) меняются на ходу (см. refreshProjectileColor). Свечение задано и при создании: refreshProjectileColor
+// зовётся только при правках панели, а первые пули должны светиться с самого начала игры.
 const PROJECTILE_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
-const PROJECTILE_MATERIAL = new THREE.MeshLambertMaterial({ color: config.PROJECTILE_COLOR });
+const PROJECTILE_MATERIAL = new THREE.MeshLambertMaterial({
+  color: config.PROJECTILE_COLOR,
+  emissive: config.PROJECTILE_COLOR,
+  emissiveIntensity: config.PROJECTILE_GLOW,
+});
 
 // Отдельный общий материал для критических снарядов: крит-пуля того же цвета, что и крит-искры
 // (SPARKS_CRIT_COLOR), — так вылет и попадание крита выглядят одним цветом. Цвет перекрашивается
 // из панели в refreshProjectileColor (его зовёт applyLiveConfig при любой правке цветов).
-const CRIT_PROJECTILE_MATERIAL = new THREE.MeshLambertMaterial({ color: config.SPARKS_CRIT_COLOR });
+const CRIT_PROJECTILE_MATERIAL = new THREE.MeshLambertMaterial({
+  color: config.SPARKS_CRIT_COLOR,
+  emissive: config.SPARKS_CRIT_COLOR,
+  emissiveIntensity: config.PROJECTILE_GLOW,
+});
+
+// Оба материала пули — чтобы обновить цвет и свечение одним вызовом (см. refreshProjectileColor).
+const PROJECTILE_MATERIALS = [PROJECTILE_MATERIAL, CRIT_PROJECTILE_MATERIAL];
 
 // Квадрат расстояния от объекта до центра арены по полу.
 // Для сравнения «кто ближе» корень не нужен: от него порядок не меняется, а считать дешевле.
@@ -259,6 +273,10 @@ const fireOneProjectile = ({
   const mesh = new THREE.Mesh(PROJECTILE_GEOMETRY, isCrit ? CRIT_PROJECTILE_MATERIAL : PROJECTILE_MATERIAL);
   mesh.scale.setScalar(visualSize);
   mesh.position.copy(body.translation());
+
+  // Пуля отбрасывает тень на пол и врагов (см. scene.ts): она мала, но тень под ней читается
+  // как след от выстрела.
+  mesh.castShadow = true;
   scene.add(mesh);
   entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle, damage, isCrit });
 };
@@ -292,11 +310,42 @@ export const removeFarProjectiles = ({ world, scene, entities }: EntityContext<P
   }
 };
 
-// Перекрашивает пули по текущему конфигу — вызывается, когда цвет меняют в панели настроек.
+// Перекрашивает пули и обновляет их свечение по текущему конфигу — вызывается, когда цвета меняют
+// в панели настроек.
 export const refreshProjectileColor = (): void => {
   PROJECTILE_MATERIAL.color.set(config.PROJECTILE_COLOR);
 
   // Крит-пули — тем же цветом, что крит-искры (SPARKS_CRIT_COLOR): правишь цвет искр в панели —
   // и крит-снаряды перекрашиваются вместе с ними (applyLiveConfig зовёт эту функцию при любом изменении).
   CRIT_PROJECTILE_MATERIAL.color.set(config.SPARKS_CRIT_COLOR);
+
+  for (const material of PROJECTILE_MATERIALS) {
+    // Свечение: emissive прибавляется к освещённому цвету и от света сцены не зависит — пуля светится
+    // и в тени, и в темноте. Цвет свечения тот же, что у самой пули, а яркость — PROJECTILE_GLOW:
+    // 0 — свечения нет, 1 — пуля светится в свою цветность, больше 1 — ярче белого, и по краю
+    // расплывается ореол (bloom, см. post.ts).
+    material.emissive.copy(material.color);
+    material.emissiveIntensity = config.PROJECTILE_GLOW;
+  }
+
+  // Крит-пуля светится ярче в CRIT_PROJECTILE_GLOW_MULTIPLIER раз (множитель к PROJECTILE_GLOW):
+  // крит должен выдаваться в потоке не только цветом и размером, но и более горящей сердцевиной.
+  CRIT_PROJECTILE_MATERIAL.emissiveIntensity *= config.CRIT_PROJECTILE_GLOW_MULTIPLIER;
 };
+
+// Яркость летящей пули в пуле света. Она меньше, чем у свежей вспышки попадания (1): вспышка только
+// что родилась и должна получить свет первой, а пуля горит ровно всё время полёта и получает то,
+// что осталось в пуле.
+const PROJECTILE_BRIGHTNESS = 0.6;
+
+// Источники света от летящих снарядов — для пула света (setGlowLights в lighting.ts): где светить
+// (текущая позиция центра пули), каким цветом (пуля или крит-пуля) и как ярко (см. выше).
+export const getGlowSources = (projectiles: Projectiles): GlowSource[] =>
+  [...projectiles.values()].map(
+    ({ body, isCrit }): GlowSource => ({
+      // translation() возвращает новый объект {x, y, z} — копировать не нужно.
+      position: body.translation(),
+      color: new THREE.Color(isCrit ? config.SPARKS_CRIT_COLOR : config.PROJECTILE_COLOR),
+      brightness: PROJECTILE_BRIGHTNESS,
+    }),
+  );

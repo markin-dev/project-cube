@@ -33,8 +33,12 @@ export const createPlayer = ({ world, scene }: PlayerParams): ColliderHandle => 
   );
 
   // Видимый куб того же размера. Игрок не двигается, поэтому положение задаём один раз.
+  // castShadow/receiveShadow — куб отбрасывает тень и принимает тени врагов (см. scene.ts).
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), PLAYER_MATERIAL);
+
   mesh.position.copy(body.translation());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   scene.add(mesh);
 
   return collider.handle;

@@ -8,6 +8,9 @@
 // кончаются — перезаписывает самую старую искру. Жёсткий предел нужен, чтобы при любом конфиге
 // (много искр при частых выстрелах) память и время обновления оставались ограничены.
 //
+// Кроме самих искр модуль помнит точки, откуда они разлетелись, — вспышки попаданий. Их подсвечивает
+// свет от снарядов (см. getBursts и src/lighting.ts): вспышка яркая сразу после удара и гаснет.
+//
 // Искры живут в игровом времени (delta из game.update): на паузе замирают, при ускорении игры
 // летят быстрее — как и всё остальное в сцене. Движение считается на каждом шаге симуляции (update),
 // а матрицы экземпляров пишутся раз в кадр перед отрисовкой (sync): на ускорении шагов за кадр
@@ -15,19 +18,26 @@
 import * as THREE from 'three';
 import { config } from './config';
 import type { Enemy } from './enemies';
+import type { GlowSource } from './lighting';
 
 // Сколько искр может жить одновременно — размер пула. Хватает с запасом: при настройках по умолчанию
 // (6 искр × 0.45 с жизни × 10 попаданий/с) одновременно живёт ~27, и до предела дело не доходит.
 const MAX_ALIVE_SPARKS = 1000;
+
+// Сколько вспышек попаданий помним для света. Пулу света (MAX_GLOW_LIGHTS в lighting.ts) нужны
+// только самые свежие, поэтому предел маленький, а лишние вспышки просто вытесняются новыми.
+const MAX_BURSTS = 32;
 
 // Единичная геометрия и общий материал. Размер искры задаётся масштабом (как у врагов), поэтому
 // ползунок SPARKS_SIZE действует без пересоздания геометрии, а цвет меняется на ходу.
 const SPARK_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
 
 // MeshBasicMaterial не зависит от света — искра светится сама по себе, как вспышка.
-// Цвет материала белый: финальный цвет искры = цвет материала × её instanceColor (setColorAt),
-// поэтому обычные и критические искры разного цвета живут в одном InstancedMesh и одном пуле.
-const SPARK_MATERIAL = new THREE.MeshBasicMaterial({ color: '#ffffff' });
+// Итоговый цвет искры = цвет материала × её instanceColor (setColorAt), поэтому обычные и критические
+// искры разного цвета живут в одном InstancedMesh и одном пуле. Цвет материала — не белый, а серый
+// по яркости SPARKS_GLOW: так свечение искр (раздел «Свечение») задаётся одной множителем для всех,
+// и он меняется на ходу, без переписывания цветов живых искр (см. refreshColor).
+const SPARK_MATERIAL = new THREE.MeshBasicMaterial({ color: new THREE.Color().setScalar(config.SPARKS_GLOW) });
 
 // Черновые объекты для матрицы искры (положение + поворот + масштаб) — одни на весь модуль,
 // чтобы не создавать новые на каждую искру в каждом кадре.
@@ -57,6 +67,18 @@ type Spark = {
   orientation: THREE.Quaternion;
 };
 
+// Вспышка попадания — точка, откуда разлетелись искры. Искры гаснут и прячутся, а свету нужна
+// сама точка удара, поэтому она помнится отдельно: яркая сразу после попадания и гаснет к концу
+// жизни (столько же, сколько жили бы искры — lifetime на момент попадания).
+type Burst = {
+  position: THREE.Vector3;
+  age: number;
+  lifetime: number;
+
+  // Критическое ли было попадание: от этого зависит цвет света (как и у самих искр).
+  isCrit: boolean;
+};
+
 // Куда рождаются искры — параметр sparks.spawn.
 export type SpawnParams = {
   // Центр пули в момент столкновения — точка, из которой летят искры.
@@ -79,6 +101,10 @@ export type Sparks = {
 
   // Перенос искр в матрицы InstancedMesh — раз в кадр, перед отрисовкой.
   sync: () => void;
+
+  // Свежие вспышки попаданий для света от снарядов (см. setGlowLights в lighting.ts): самые яркие
+  // первыми, не больше count, погасшие не отдаются. Цвет вспышки — как у её искр.
+  getBursts: (count: number) => GlowSource[];
 
   clear: () => void;
   refreshColor: () => void;
@@ -142,11 +168,18 @@ const getBurstDirection = (): THREE.Vector3 => {
 };
 
 // Цвет искр одного попадания по текущему конфигу: обычные — SPARKS_COLOR, критические —
-// SPARKS_CRIT_COLOR. Читается в момент рождения и перекраски (refreshColor), поэтому смена цвета
+// SPARKS_CRIT_COLOR, увеличенный на SPARKS_CRIT_GLOW_MULTIPLIER. Множитель больше 1 — не ошибка:
+// цвет искры живёт в float-буфере instanceColor и свыше 1 не обрезается, поэтому крит-искры
+// заметно горят на фоне обычных (а при bloom получают ореол). Тот же множитель ярче делает свет
+// вспышки крит-попадания (см. getBursts) — он берёт цвет отсюда.
+// Читается в момент рождения и перекраски (refreshColor), поэтому смена цвета
 // в панели действует сразу. THREE.Color из хекс-строки хранит цвет в рабочем (линейном) пространстве —
 // ровно то, чего ждёт setColorAt у InstancedMesh.
-const getSparkColor = (isCrit: boolean): THREE.Color =>
-  new THREE.Color(isCrit ? config.SPARKS_CRIT_COLOR : config.SPARKS_COLOR);
+const getSparkColor = (isCrit: boolean): THREE.Color => {
+  const color = new THREE.Color(isCrit ? config.SPARKS_CRIT_COLOR : config.SPARKS_COLOR);
+
+  return isCrit ? color.multiplyScalar(config.SPARKS_CRIT_GLOW_MULTIPLIER) : color;
+};
 
 export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
   // Пул искр: массив фиксированной длины, слоты используются по кругу.
@@ -177,6 +210,10 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
   // Записанные слоты пула — индекс в массиве совпадает с номером слота.
   const getUsedSparks = (): Spark[] => sparks.slice(0, pool.usedSlots);
 
+  // Вспышки попаданий (см. тип Burst) — их подсвечивает свет от снарядов. Живут своим списком,
+  // отдельно от пула искр: вспышка нужна даже при выключенных искрах и после того, как искры погасли.
+  const bursts: Burst[] = [];
+
   const hide = (index: number): void => {
     mesh.setMatrixAt(index, HIDDEN_MATRIX);
   };
@@ -187,12 +224,26 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
   mesh.instanceMatrix.needsUpdate = true;
 
   const spawn = ({ projectilePosition, enemy, isCrit = false }: SpawnParams): void => {
+    // Точка, откуда разлетятся искры: поверхность куба врага, куда пришла пуля.
+    const burstPosition = getBurstPosition(projectilePosition, enemy);
+    const lifetime = config.SPARKS_LIFETIME;
+
+    // Вспышка попадания запоминается до проверки числа искр — свет от неё крутит свой
+    // переключатель (GLOW_LIGHTS_ENABLED), а не SPARKS_COUNT: выключенные искры не мешают
+    // вспышке осветить место удара.
+    if (bursts.length >= MAX_BURSTS) {
+      // Мест нет — вытесняем самую старую вспышку: свету всё равно нужны свежие.
+      bursts.shift();
+    }
+
+    bursts.push({ position: burstPosition, age: 0, lifetime, isCrit });
+
     // Критическое попадание бьёт сильнее и ярче: больше искр (COUNT_MULTIPLIER) и каждая быстрее
     // (SPEED_MULTIPLIER). Множители читаются тут, при рождении — как и SPARKS_COUNT/SPARKS_SPEED,
     // правка панели действует на новые попадания.
     const count = Math.round(config.SPARKS_COUNT * (isCrit ? config.SPARKS_CRIT_COUNT_MULTIPLIER : 1));
 
-    // 0 в панели — выключить искры совсем.
+    // 0 в панели — выключить искры совсем (вспышка при этом уже запомнена, см. выше).
     if (count <= 0) {
       return;
     }
@@ -200,10 +251,7 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     // Цвет всех искр одного попадания: обычные — SPARKS_COLOR, критические — SPARKS_CRIT_COLOR.
     const baseColor = getSparkColor(isCrit);
 
-    // Все искры одного попадания рождаются в одной точке.
-    const burstPosition = getBurstPosition(projectilePosition, enemy);
     const speedSpread = config.SPARKS_SPEED_SPREAD;
-    const lifetime = config.SPARKS_LIFETIME;
     const baseSpeed = config.SPARKS_SPEED * (isCrit ? config.SPARKS_CRIT_SPEED_MULTIPLIER : 1);
 
     Array.from({ length: count }).forEach((): void => {
@@ -243,6 +291,13 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
   };
 
   const update = (delta: number): void => {
+    // Вспышки стареют своим ходом, до проверки пула искр: при выключенных искрах (SPARKS_COUNT 0)
+    // пул пуст и сюда бы не доехали, а вспышке света всё равно нужно угасать. Отмирающие не выкидываем —
+    // они отфильтруются в getBursts, а новые вспышки вытесняют их при нехватке места (см. spawn).
+    bursts.forEach((burst): void => {
+      burst.age += delta;
+    });
+
     if (pool.usedSlots === 0) {
       return;
     }
@@ -303,11 +358,28 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     pool.isDirty = false;
   };
 
+  // Источники света из вспышек: живые (не угасшие) отдаются самыми яркими первыми, не больше count.
+  // Яркость падает от 1 к 0 за время жизни вспышки — свет делает вспышку в момент удара и гаснет
+  // вместе с ней, а не горит до конца кадра. Цвет — как у искр этого попадания (getSparkColor).
+  const getBursts = (count: number): GlowSource[] =>
+    bursts
+      .map((burst): GlowSource => ({
+        position: burst.position,
+        color: getSparkColor(burst.isCrit),
+        brightness: 1 - burst.age / burst.lifetime,
+      }))
+      .filter(({ brightness }): boolean => brightness > 0)
+      .sort((first, second): number => second.brightness - first.brightness)
+      .slice(0, count);
+
   const clear = (): void => {
     getUsedSparks().forEach((spark, index): void => {
       spark.isAlive = false;
       hide(index);
     });
+
+    // Вспышки тоже кончаются — рестарт игры не должен подсвечивать старые места удара.
+    bursts.length = 0;
 
     pool.usedSlots = 0;
     pool.cursor = 0;
@@ -315,9 +387,12 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     mesh.instanceMatrix.needsUpdate = true;
   };
 
-  // Перекрашивает живые искры по текущему конфигу — вызывается, когда цвет меняют в панели настроек.
-  // Цвет живёт в instanceColor каждой искры, поэтому переписываем его по живым слотам.
+  // Перекрашивает живые искры и обновляет их свечение по текущему конфигу — вызывается, когда
+  // цвета меняют в панели настроек. Цвет живёт в instanceColor каждой искры, поэтому переписываем
+  // его по живым слотам; яркость свечения (SPARKS_GLOW) — общий множитель в цвете материала.
   const refreshColor = (): void => {
+    SPARK_MATERIAL.color.setScalar(config.SPARKS_GLOW);
+
     const aliveSlots = getUsedSparks()
       .map((spark, index) => ({ spark, index }))
       .filter(({ spark }) => spark.isAlive);
@@ -331,5 +406,5 @@ export const createSparks = ({ scene }: { scene: THREE.Scene }): Sparks => {
     }
   };
 
-  return { spawn, update, sync, clear, refreshColor };
+  return { spawn, update, sync, getBursts, clear, refreshColor };
 };

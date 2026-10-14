@@ -14,6 +14,19 @@ export default defineConfig({
   // Алиас @/ → src/ — из paths в tsconfig.json.
   resolve: { tsconfigPaths: true },
 
+  // Модули post-обработки three (см. src/post.ts) для dev-сервера новые: без этого списка vite
+  // «обнаруживает» их уже во время тестов, перестраивает зависимости и перезагружает страницу —
+  // vitest ловит это как «unexpectedly reloaded» и падает по таймауту. Перечисленные здесь
+  // зависимости оптимизируются заранее, до старта тестов.
+  optimizeDeps: {
+    include: [
+      'three/examples/jsm/postprocessing/EffectComposer.js',
+      'three/examples/jsm/postprocessing/OutputPass.js',
+      'three/examples/jsm/postprocessing/RenderPass.js',
+      'three/examples/jsm/postprocessing/UnrealBloomPass.js',
+    ],
+  },
+
   test: {
     include: ['browser/**/*.test.ts'],
 
