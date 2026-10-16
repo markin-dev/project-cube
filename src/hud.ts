@@ -2,9 +2,13 @@
 // текст в HTML делать намного проще, чем рисовать его в 3D-сцене.
 
 type WaveInfo = {
-  // Номер волны для игрока — с 1.
+  // Сквозной номер волны для игрока — с 1: после первой десятки волны идут дальше (11, 12, …),
+  // хотя сами волны в списке повторяются с начала.
   number: number;
-  total: number;
+
+  // Множитель текущего круга (с 1): во сколько раз больше врагов выпускает каждая группа.
+  // Показывается в строке номера («Волна 12 · ×2»), только когда больше 1.
+  multiplier: number;
   name: string;
 };
 
@@ -54,7 +58,7 @@ export const createHud = (): Hud => {
   nameLine.style.cssText = 'font-size: 14px; font-weight: normal; opacity: 0.7;';
   waveLabel.append(waveLine, groupLine, nameLine);
 
-  // Экран конца игры (поражение или победа): полупрозрачная заливка на всё окно и текст по центру.
+  // Экран конца игры: полупрозрачная заливка на всё окно и текст по центру.
   // Пока игра идёт, он скрыт (display: none).
   // z-index: 1 — поверх цифр урона, которые ещё досматривают свою анимацию после конца игры.
   const endScreen = document.createElement('div');
@@ -87,8 +91,8 @@ export const createHud = (): Hud => {
     endScreen.style.display = isVisible && isEndScreenShown ? 'flex' : 'none';
   };
 
-  const setWave = ({ number, total, name }: WaveInfo): void => {
-    waveLine.textContent = `Волна ${number} / ${total}`;
+  const setWave = ({ number, multiplier, name }: WaveInfo): void => {
+    waveLine.textContent = `Волна ${number}${multiplier > 1 ? ` · ×${multiplier}` : ''}`;
     nameLine.textContent = name;
   };
 

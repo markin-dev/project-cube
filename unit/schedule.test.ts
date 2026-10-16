@@ -50,6 +50,20 @@ describe('buildWaveSchedule', () => {
 
     expect(buildWaveSchedule(FAKE_WAVE)[0].events.map(({ time }) => time)).toEqual([0, 0.25, 0.5, 0.75, 1, 1.25]);
   });
+
+  it('Должен умножать врагов на круг и делить на него интервал', () => {
+    // Первая группа: 3 точки × 3, время врага — номер × interval ÷ круг.
+    const expectedTimes = Array.from({ length: 9 }, (_, index) => (index * 0.5) / 3);
+
+    expect(buildWaveSchedule(FAKE_WAVE, 3)[0].events.map(({ time }) => time)).toEqual(expectedTimes);
+    expect(buildWaveSchedule(FAKE_WAVE, 3)[1].events).toHaveLength(12);
+  });
+
+  it('Должен перемножить ENEMY_COUNT_MULTIPLIER и круг', () => {
+    config.ENEMY_COUNT_MULTIPLIER = 2;
+
+    expect(buildWaveSchedule(FAKE_WAVE, 3)[1].events).toHaveLength(24);
+  });
 });
 
 describe('countDueEvents', () => {

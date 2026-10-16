@@ -17,8 +17,9 @@ import { createSpawnPlacer } from './spawn-placement';
 import type { Sparks } from './sparks';
 import type { Wave } from './waves';
 
-// playing — идёт игра; lost — враг добрался до игрока; won — все волны пройдены.
-export type GameStatus = 'playing' | 'lost' | 'won';
+// playing — идёт игра; lost — враг добрался до игрока. Волны идут по кругу бесконечно,
+// победы нет — цель игрока дойти как можно дальше.
+export type GameStatus = 'playing' | 'lost';
 
 // Группа текущей волны во время игры: её расписание (см. schedule.ts), момент, когда она началась
 // (секунд от начала волны; undefined — ещё не началась), и сколько её врагов уже появилось.
@@ -28,8 +29,13 @@ type ActiveGroup = GroupSchedule & {
 };
 
 export type GameState = {
-  // Индекс текущей волны в списке волн, с 0. Игроку показываем номер на 1 больше.
+  // Индекс текущей волны в списке волн, с 0 (0…waves.length − 1): после последней волны круга
+  // игра возвращается к первой. Игроку показываем не этот индекс, а сквозной номер — см. waveNumber.
   waveIndex: number;
+
+  // Текущий круг (с 1): каждые waves.length волн множество увеличивается на 1 и волны начинаются
+  // сначала. Круг = множитель сложности: столько раз больше врагов выпускает каждая группа.
+  round: number;
 
   // Сколько секунд прошло с начала текущей волны — по нему сверяемся с задержками групп.
   waveTime: number;
@@ -110,6 +116,7 @@ export const createGame = ({
   // Объект один на всю игру, меняем его поля. Настоящие стартовые значения выставляет startGame.
   const state: GameState = {
     waveIndex: startWaveIndex,
+    round: 1,
     waveTime: 0,
     groups: [],
     fireTimer: 0,
@@ -118,13 +125,16 @@ export const createGame = ({
 
   // ─── ВОЛНЫ ─────────────────────────────────────────────────────────────────
 
+  // Сквозной номер волны для игрока: первая десятка — 1…10, вторая круга — 11…20 и т.д.
+  const waveNumber = (): number => (state.round - 1) * waves.length + state.waveIndex + 1;
+
   const startWave = (waveIndex: number): void => {
     const wave = waves[waveIndex];
 
     state.waveIndex = waveIndex;
     state.waveTime = 0;
-    state.groups = buildWaveSchedule(wave).map((group) => ({ ...group, spawnedCount: 0 }));
-    hud.setWave({ number: waveIndex + 1, total: waves.length, name: wave.name });
+    state.groups = buildWaveSchedule(wave, state.round).map((group) => ({ ...group, spawnedCount: 0 }));
+    hud.setWave({ number: waveNumber(), multiplier: state.round, name: wave.name });
     hud.setGroup({ number: 0, total: state.groups.length });
     onWaveStart(waveIndex);
   };
@@ -207,26 +217,19 @@ export const createGame = ({
     }
   };
 
-  const winGame = (): void => {
-    state.status = 'won';
-
-    hud.showEndScreen({
-      title: 'Победа!',
-      hint: 'Все волны пройдены. Нажми, чтобы сыграть ещё раз',
-    });
-  };
-
   const loseGame = (): void => {
     state.status = 'lost';
 
     hud.showEndScreen({
-      title: `Поражение — волна ${state.waveIndex + 1}`,
+      title: `Поражение — волна ${waveNumber()}`,
       hint: 'Нажми, чтобы начать заново',
     });
   };
 
   // Волна закончена, когда все её группы начались, все их враги появились и все убиты.
-  // Следующая начинается сразу, а после последней — победа.
+  // Следующая начинается сразу; после последней волны круга волны идут сначала (первая снова),
+  // но круг увеличивается на 1 — каждая группа выпускает в столько раз больше врагов, — а отсчёт
+  // волн у игрока продолжается сквозной: 11, 12, 13 …
   const advanceWave = (): void => {
     const isWaveCleared = state.groups.every(isGroupFullySpawned) && enemies.size === 0;
 
@@ -237,7 +240,8 @@ export const createGame = ({
     const isLastWave = state.waveIndex === waves.length - 1;
 
     if (isLastWave) {
-      winGame();
+      state.round += 1;
+      startWave(0);
 
       return;
     }
@@ -414,6 +418,7 @@ export const createGame = ({
     sparks.clear();
     state.fireTimer = 0;
     state.status = 'playing';
+    state.round = 1;
     hud.hideEndScreen();
     startWave(waveIndex);
   };

@@ -2,7 +2,6 @@
 // запуск волны из панели настроек. Каждый тест сам включает нужную скорость в начале.
 import { expect, it } from 'vitest';
 import '@/main';
-import { WAVES } from '@/waves';
 import { getButton, getEnemiesCount, getGame, sleep, waitUntil } from './helpers';
 
 const LOSE_HINT = 'Нажми, чтобы начать заново';
@@ -63,5 +62,5 @@ it('Должен запустить волну, выбранную в панел
   select.selectedIndex = 4;
   select.dispatchEvent(new Event('change'));
 
-  await expect.poll(() => document.body.innerText, { timeout: 5000 }).toContain(`Волна 5 / ${WAVES.length}`);
+  await expect.poll(() => document.body.innerText, { timeout: 5000 }).toContain('Волна 5');
 });

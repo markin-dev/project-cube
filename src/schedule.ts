@@ -22,17 +22,21 @@ const getRandomKindName = (): EnemyKindName => ENEMY_KIND_NAMES[Math.floor(Math.
 // время появления каждого врага от начала группы (номер врага × interval) и его тип
 // (тип группы, а если он не указан — случайный для каждого врага).
 // Точки и случайные типы считаются в момент вызова, поэтому каждый раз новые.
-// config.ENEMY_COUNT_MULTIPLIER (см. config.ts) умножает число врагов в группе и во столько же раз
-// сокращает интервал между ними — группа появляется за то же время, но гуще.
-export const buildWaveSchedule = (wave: Wave): GroupSchedule[] =>
-  wave.groups.map(({ shape, delay = 0, interval = 0, enemy }) => ({
+// config.ENEMY_COUNT_MULTIPLIER (см. config.ts) и множитель круга round (см. game.ts) перемножаются:
+// итоговый множитель умножает число врагов в группе и во столько же раз сокращает интервал между
+// ними — группа появляется за то же время, но гуще.
+export const buildWaveSchedule = (wave: Wave, round: number = 1): GroupSchedule[] => {
+  const multiplier = config.ENEMY_COUNT_MULTIPLIER * round;
+
+  return wave.groups.map(({ shape, delay = 0, interval = 0, enemy }) => ({
     delay,
-    events: getShapePoints({ ...shape, count: shape.count * config.ENEMY_COUNT_MULTIPLIER }).map((point, index) => ({
+    events: getShapePoints({ ...shape, count: shape.count * multiplier }).map((point, index) => ({
       ...point,
-      time: (index * interval) / config.ENEMY_COUNT_MULTIPLIER,
+      time: (index * interval) / multiplier,
       kindName: enemy ?? getRandomKindName(),
     })),
   }));
+};
 
 // Сколько первых событий группы наступило к моменту elapsed (секунд от начала группы). События идут
 // по возрастанию времени, поэтому границу ищем двоичным поиском, а не перебором: в огромной группе

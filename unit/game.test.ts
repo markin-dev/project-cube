@@ -1,5 +1,5 @@
-// Юнит-тесты игровой логики (src/game.ts) на headless-Rapier: волны и группы, лимит появлений,
-// стрельба, попадания, победа и поражение. HUD, звук и цифры урона — заглушки vi.fn.
+// Юнит-тесты игровой логики (src/game.ts) на headless-Rapier: волны и их круги, группы, лимит появлений,
+// стрельба, попадания и поражение. HUD, звук и цифры урона — заглушки vi.fn.
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { config } from '@/config';
 import type { Enemies } from '@/enemies';
@@ -87,7 +87,7 @@ afterEach(() => vi.clearAllMocks());
 it('Должен показать номер и название стартовой волны', async () => {
   const { hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_ENEMY_WAVE] });
 
-  expect(hud.setWave).toHaveBeenCalledWith({ number: 1, total: 2, name: 'Один' });
+  expect(hud.setWave).toHaveBeenCalledWith({ number: 1, multiplier: 1, name: 'Один' });
 });
 
 describe('группы волны', () => {
@@ -135,27 +135,29 @@ describe('конец волны', () => {
     expect(game.state.waveIndex).toBe(1);
   });
 
-  it('Должен объявить победу после последней волны', async () => {
+  it('Должен начать новый круг с первой волны после последней', async () => {
     const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
 
     runSteps(game, 1);
     pushOutOfArena(game.enemies);
     runSteps(game, 1);
 
-    expect(game.state.status).toBe('won');
+    expect(game.state.waveIndex).toBe(0);
+    expect(game.state.round).toBe(2);
+    expect(game.state.status).toBe('playing');
   });
 
-  it('Должен показать экран победы с верными параметрами', async () => {
-    const { game, hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+  it('Должен показать сквозной номер волны и множитель нового круга', async () => {
+    const { game, hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_ENEMY_WAVE] });
 
-    runSteps(game, 1);
-    pushOutOfArena(game.enemies);
-    runSteps(game, 1);
+    // Две волны в круге: добиваем обе — игра возвращается к первой, но номер на экране 3 и множитель 2.
+    for (let wave = 0; wave < 2; wave += 1) {
+      runSteps(game, 1);
+      pushOutOfArena(game.enemies);
+      runSteps(game, 1);
+    }
 
-    expect(hud.showEndScreen).toHaveBeenCalledWith({
-      title: 'Победа!',
-      hint: 'Все волны пройдены. Нажми, чтобы сыграть ещё раз',
-    });
+    expect(hud.setWave).toHaveBeenLastCalledWith({ number: 3, multiplier: 2, name: 'Один' });
   });
 });
 
@@ -196,8 +198,13 @@ describe('update', () => {
     const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
 
     runSteps(game, 1);
-    pushOutOfArena(game.enemies);
-    runSteps(game, 1);
+
+    // Враг вплотную к кубу — поражение на ближайшем шаге.
+    for (const { body } of game.enemies.values()) {
+      body.setTranslation({ x: 0.8, y: 0.4, z: 0 }, true);
+    }
+
+    runUntil({ game, isDone: () => game.state.status === 'lost', maxSeconds: 1 });
 
     const finishedAt = game.state.waveTime;
 
