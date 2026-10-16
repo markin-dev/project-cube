@@ -3,7 +3,7 @@
 import { keepAboveSettingsPanel } from './layout';
 
 // Скорости на выбор: 0 — пауза, 1 — обычная, больше — ускорение, меньше — замедление.
-const SPEEDS = [0, 0.5, 1, 2, 4, 8];
+const SPEEDS = [0, 0.5, 1, 2, 4, 8, 16];
 const DEFAULT_SPEED = 1;
 
 const getSpeedLabel = (speed: number): string => (speed === 0 ? '⏸' : `×${speed}`);
