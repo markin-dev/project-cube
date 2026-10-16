@@ -40,31 +40,25 @@ export type SpawnGroup = {
 };
 
 export type Wave = {
-  // Название показывается на экране рядом с номером волны — удобно при отладке.
-  name: string;
   groups: SpawnGroup[];
 };
 
 export const WAVES: Wave[] = [
   {
     // Самые слабые враги по одному — знакомство со стрельбой: у крошке 10 HP, хватает одного попадания.
-    name: 'Разминка',
     groups: [{ shape: { type: 'random', count: 3 }, interval: 1.5, enemy: 'tiny' }],
   },
   {
     // Восемь крошек по одной — ровный поток, которого хватает на разогрев прицела.
-    name: 'Крошки',
     groups: [{ shape: { type: 'random', count: 8 }, interval: 0.7, enemy: 'tiny' }],
   },
   {
     // Плотный рой: четырнадцать крошек частым темпом — первая проверка на скорость реакции.
-    name: 'Рой',
     groups: [{ shape: { type: 'random', count: 14 }, interval: 0.35, enemy: 'tiny' }],
   },
   {
     // Первые здоровяки: шесть small разом, и через три секунды — добить остатками крошки.
     // У small 20 HP — уже два попадания.
-    name: 'Первые здоровяки',
     groups: [
       { shape: { type: 'random', count: 6 }, enemy: 'small' },
       { shape: { type: 'random', count: 5 }, delay: 3, enemy: 'tiny' },
@@ -72,13 +66,11 @@ export const WAVES: Wave[] = [
   },
   {
     // Десять small по одному — враги приходят плотным строем, но не разом.
-    name: 'Засев',
     groups: [{ shape: { type: 'random', count: 10 }, interval: 0.5, enemy: 'small' }],
   },
   {
     // Смешанный рой: сначала small, через 4 с — normal (40 HP, три попадания). Две цели разной
     // крепости одновременно — игра вынуждает переключаться.
-    name: 'Смешанный рой',
     groups: [
       { shape: { type: 'random', count: 8 }, enemy: 'small' },
       { shape: { type: 'random', count: 6 }, delay: 4, enemy: 'normal' },
@@ -86,12 +78,10 @@ export const WAVES: Wave[] = [
   },
   {
     // Обстрел: двенадцать normal частым темпом — сплошная средняя крепость без передышки.
-    name: 'Обстрел',
     groups: [{ shape: { type: 'random', count: 12 }, interval: 0.4, enemy: 'normal' }],
   },
   {
     // Тяжёлая пехота: восемь normal, и через 5 с — четыре big (80 HP, шесть попаданий).
-    name: 'Тяжёлая пехота',
     groups: [
       { shape: { type: 'random', count: 8 }, enemy: 'normal' },
       { shape: { type: 'random', count: 4 }, delay: 5, enemy: 'big' },
@@ -99,7 +89,6 @@ export const WAVES: Wave[] = [
   },
   {
     // Громилы: шесть big по одной — тяжёлые одиночки, и через 3 с рой small вдобавок.
-    name: 'Громилы',
     groups: [
       { shape: { type: 'random', count: 6 }, interval: 1, enemy: 'big' },
       { shape: { type: 'random', count: 6 }, delay: 3, interval: 0.5, enemy: 'small' },
@@ -108,7 +97,6 @@ export const WAVES: Wave[] = [
   {
     // Обвал — самая тяжёлая волна круга: big, через 4 с normal, через 10 с брут (120 HP, восемь
     // попаданий). Пройден круг — счётчик волны продолжается, а врагов станет вдвое больше.
-    name: 'Обвал',
     groups: [
       { shape: { type: 'random', count: 8 }, enemy: 'big' },
       { shape: { type: 'random', count: 6 }, delay: 4, enemy: 'normal' },

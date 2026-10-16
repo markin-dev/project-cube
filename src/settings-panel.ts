@@ -342,11 +342,11 @@ const addWavePicker = (gui: GUI, onStartWave: (waveIndex: number) => void): ((wa
   const folder = gui.addFolder('Волны (отладка)');
   const picked = { waveIndex: 0 };
 
-  // Варианты селекта: подпись «N · название», значение — индекс в WAVES.
+  // Варианты селекта: подпись — номер волны, значение — индекс в WAVES.
   const options: Record<string, number> = {};
 
-  WAVES.forEach((wave, index): void => {
-    options[`${index + 1} · ${wave.name}`] = index;
+  WAVES.forEach((_, index): void => {
+    options[`${index + 1}`] = index;
   });
 
   // Выбор волны запускает её сразу — иначе пришлось бы жать ещё и кнопку.

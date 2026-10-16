@@ -6,7 +6,6 @@ import { buildWaveSchedule, countDueEvents, type SpawnEvent } from '@/schedule';
 import type { Wave } from '@/waves';
 
 const FAKE_WAVE: Wave = {
-  name: 'Тест',
   groups: [
     { shape: { type: 'random', count: 3 }, delay: 1.5, interval: 0.5, enemy: 'tiny' },
     { shape: { type: 'random', count: 4 } },

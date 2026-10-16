@@ -13,12 +13,10 @@ import { createTestWorld } from './fixtures';
 const STEP = 1 / 60;
 
 const ONE_ENEMY_WAVE: Wave = {
-  name: 'Один',
   groups: [{ shape: { type: 'random', count: 1 }, enemy: 'normal' }],
 };
 
 const TWO_GROUPS_WAVE: Wave = {
-  name: 'Две группы',
   groups: [
     { shape: { type: 'random', count: 1 }, enemy: 'normal' },
     { shape: { type: 'random', count: 1 }, enemy: 'normal', delay: 100 },
@@ -84,10 +82,10 @@ const pushOutOfArena = (enemies: Enemies): void => {
 
 afterEach(() => vi.clearAllMocks());
 
-it('Должен показать номер и название стартовой волны', async () => {
+it('Должен показать номер стартовой волны', async () => {
   const { hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_ENEMY_WAVE] });
 
-  expect(hud.setWave).toHaveBeenCalledWith({ number: 1, multiplier: 1, name: 'Один' });
+  expect(hud.setWave).toHaveBeenCalledWith({ number: 1, multiplier: 1 });
 });
 
 describe('группы волны', () => {
@@ -103,7 +101,7 @@ describe('группы волны', () => {
 
   it('Должен выпустить группу без задержки на первом шаге', async () => {
     const { game } = await createTestGame({
-      waves: [{ name: 'Тройка', groups: [{ shape: { type: 'random', count: 3 }, enemy: 'normal' }] }],
+      waves: [{ groups: [{ shape: { type: 'random', count: 3 }, enemy: 'normal' }] }],
     });
 
     runSteps(game, 1);
@@ -115,7 +113,7 @@ describe('группы волны', () => {
     config.SPAWN_PER_STEP = 10;
 
     const { game } = await createTestGame({
-      waves: [{ name: 'Толпа', groups: [{ shape: { type: 'random', count: 25 }, enemy: 'tiny' }] }],
+      waves: [{ groups: [{ shape: { type: 'random', count: 25 }, enemy: 'tiny' }] }],
     });
 
     runSteps(game, 1);
@@ -157,7 +155,7 @@ describe('конец волны', () => {
       runSteps(game, 1);
     }
 
-    expect(hud.setWave).toHaveBeenLastCalledWith({ number: 3, multiplier: 2, name: 'Один' });
+    expect(hud.setWave).toHaveBeenLastCalledWith({ number: 3, multiplier: 2 });
   });
 });
 

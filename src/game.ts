@@ -134,7 +134,7 @@ export const createGame = ({
     state.waveIndex = waveIndex;
     state.waveTime = 0;
     state.groups = buildWaveSchedule(wave, state.round).map((group) => ({ ...group, spawnedCount: 0 }));
-    hud.setWave({ number: waveNumber(), multiplier: state.round, name: wave.name });
+    hud.setWave({ number: waveNumber(), multiplier: state.round });
     hud.setGroup({ number: 0, total: state.groups.length });
     onWaveStart(waveIndex);
   };

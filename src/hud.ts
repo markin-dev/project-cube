@@ -9,7 +9,6 @@ type WaveInfo = {
   // Множитель текущего круга (с 1): во сколько раз больше врагов выпускает каждая группа.
   // Показывается в строке номера («Волна 12 · ×2»), только когда больше 1.
   multiplier: number;
-  name: string;
 };
 
 type GroupInfo = {
@@ -35,7 +34,7 @@ export type Hud = {
 };
 
 export const createHud = (): Hud => {
-  // Номер волны, под ним счётчик групп и название волны — в левом верхнем углу.
+  // Номер волны и под ним счётчик групп — в левом верхнем углу.
   // position: fixed — элемент привязан к окну и лежит поверх canvas.
   // pointer-events: none — касания проходят сквозь надпись к тому, что под ней.
   const waveLabel = document.createElement('div');
@@ -50,13 +49,11 @@ export const createHud = (): Hud => {
     user-select: none;
   `;
 
-  // Три строки — отдельные элементы, чтобы номер группы обновлялся, не трогая остальное.
+  // Две строки — отдельные элементы, чтобы номер группы обновлялся, не трогая остальное.
   const waveLine = document.createElement('div');
   const groupLine = document.createElement('div');
-  const nameLine = document.createElement('div');
   groupLine.style.cssText = 'font-size: 16px;';
-  nameLine.style.cssText = 'font-size: 14px; font-weight: normal; opacity: 0.7;';
-  waveLabel.append(waveLine, groupLine, nameLine);
+  waveLabel.append(waveLine, groupLine);
 
   // Экран конца игры: полупрозрачная заливка на всё окно и текст по центру.
   // Пока игра идёт, он скрыт (display: none).
@@ -91,9 +88,8 @@ export const createHud = (): Hud => {
     endScreen.style.display = isVisible && isEndScreenShown ? 'flex' : 'none';
   };
 
-  const setWave = ({ number, multiplier, name }: WaveInfo): void => {
+  const setWave = ({ number, multiplier }: WaveInfo): void => {
     waveLine.textContent = `Волна ${number}${multiplier > 1 ? ` · ×${multiplier}` : ''}`;
-    nameLine.textContent = name;
   };
 
   const setGroup = ({ number, total }: GroupInfo): void => {

@@ -33,7 +33,6 @@ npm run dev
 
 ```ts
 {
-  name: 'Два наскока',
   groups: [
     { shape: { type: 'random', count: 5 } },
     { shape: { type: 'random', count: 5 }, delay: 2 },
