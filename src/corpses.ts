@@ -5,7 +5,7 @@ import type { ColliderHandle, World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { CORPSE_GROUPS } from './collision-groups';
 import { config } from './config';
-import { isEnemyAboveCeiling, isEnemyBelowFloor, isEnemyOverArena, type Enemies } from './enemies';
+import { isEnemyAboveCeiling, isEnemyBelowFloor, isEnemyOverArena, type Enemy, type Enemies } from './enemies';
 import { removeEntity, type CubeEntity, type Entities, type EntityContext } from './entity';
 
 export type Corpse = CubeEntity & {
@@ -66,6 +66,7 @@ export const turnIntoCorpse = ({
 // Покинул арену — значит, центр врага пересёк край (на любой высоте: вернуться оттуда он не может —
 // управления над пустотой нет, а пули толкают только дальше от куба), поднялся выше потолка смерти
 // или оказался ниже пола (страховка).
+// Возвращает списком врагов, которых пришлось убрать: игровая логика начисляет за них опыт.
 // Удалять элементы Map прямо во время обхода в JS безопасно — turnIntoCorpse удаляет врага из списка.
 export const turnOutOfArenaIntoCorpses = ({
   world,
@@ -75,12 +76,17 @@ export const turnOutOfArenaIntoCorpses = ({
   world: World;
   enemies: Enemies;
   corpses: Corpses;
-}): void => {
+}): Enemy[] => {
+  const killed: Enemy[] = [];
+
   for (const [handle, enemy] of enemies) {
     if (!isEnemyOverArena(enemy) || isEnemyAboveCeiling(enemy) || isEnemyBelowFloor(enemy)) {
       turnIntoCorpse({ world, enemies, corpses, handle });
+      killed.push(enemy);
     }
   }
+
+  return killed;
 };
 
 // Старит призраков: отлежав CORPSE_LIFETIME секунд, призрак за CORPSE_SHRINK_DURATION секунд

@@ -142,6 +142,13 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    title: 'Прокачка',
+    settings: [
+      // Порог уровня: need(level) = round(base × level^1.5). Опыт за врага — в папках типов («Опыт»).
+      { key: 'LEVEL_XP_BASE', label: 'Опыт: база уровня', min: 10, max: 1000, step: 10 },
+    ],
+  },
+  {
     title: 'Враги',
     isWithEnemyKinds: true,
     settings: [
@@ -315,6 +322,7 @@ export const KIND_SETTINGS: KindSetting[] = [
   { key: 'size', label: 'Размер, м', min: 0.2, max: 3, step: 0.05 },
   { key: 'mass', label: 'Масса, кг', min: 0.05, max: 20, step: 0.05 },
   { key: 'hp', label: 'HP', min: 1, max: 1000, step: 1 },
+  { key: 'xp', label: 'Опыт', min: 0, max: 500, step: 1 },
 ];
 
 // Папки «Типы врагов»: у каждого типа размер, масса, HP (для новых врагов) и цвет (сразу).

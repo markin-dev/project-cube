@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { config } from '@/config';
 import type { Enemies } from '@/enemies';
-import { createGame, type Game } from '@/game';
+import { createGame, needForLevelUp, type Game } from '@/game';
 import type { Hud } from '@/hud';
 import { createPlayer } from '@/player';
 import { createSparks } from '@/sparks';
@@ -35,6 +35,7 @@ const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> =
   const hud = {
     setWave: vi.fn(),
     setGroup: vi.fn(),
+    setProgress: vi.fn(),
     showEndScreen: vi.fn(),
     hideEndScreen: vi.fn(),
     setVisible: vi.fn(),
@@ -188,6 +189,54 @@ describe('бой', () => {
     runUntil({ game, isDone: () => game.state.status !== 'playing', maxSeconds: 1 });
 
     expect(game.state.status).toBe('lost');
+  });
+});
+
+describe('прокачка', () => {
+  it('Должен начислить опыт за убитого попаданием врага', async () => {
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    runUntil({ game, isDone: () => game.enemies.size === 0, maxSeconds: 5 });
+
+    // ONE_ENEMY_WAVE — normal, его опыт 20.
+    expect(game.state.xp).toBe(20);
+  });
+
+  it('Должен начислить опыт за врага, выброшенного за арену', async () => {
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    runSteps(game, 1);
+    pushOutOfArena(game.enemies);
+    runSteps(game, 1);
+
+    expect(game.state.xp).toBe(20);
+  });
+
+  it('Должен поднять уровень, когда опыт перешёл порог', async () => {
+    config.LEVEL_XP_BASE = 10;
+
+    const { game, hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    // Опыта normal (20) хватает на уровень 2 (порт 10), остаток 10 копится на третий.
+    runUntil({ game, isDone: () => game.enemies.size === 0, maxSeconds: 5 });
+
+    expect(game.state.level).toBe(2);
+    expect(game.state.xp).toBe(10);
+    expect(hud.setProgress).toHaveBeenLastCalledWith({ level: 2, xp: 10, needed: needForLevelUp(2) });
+  });
+
+  it('Должен показать опыт 0 и порог первого уровня при старте', async () => {
+    const { game, hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    runSteps(game, 1);
+    pushOutOfArena(game.enemies);
+    runSteps(game, 1);
+
+    game.startGame();
+
+    expect(game.state.level).toBe(1);
+    expect(game.state.xp).toBe(0);
+    expect(hud.setProgress).toHaveBeenLastCalledWith({ level: 1, xp: 0, needed: needForLevelUp(1) });
   });
 });
 

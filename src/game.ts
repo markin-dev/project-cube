@@ -37,6 +37,11 @@ export type GameState = {
   // сначала. Круг = множитель сложности: столько раз больше врагов выпускает каждая группа.
   round: number;
 
+  // Прокачка куба: уровень (с 1) и накопленный на него опыт. Порог следующего уровня —
+  // needForLevelUp(state.level) в game.ts; опыт сверх порога не пропадает.
+  level: number;
+  xp: number;
+
   // Сколько секунд прошло с начала текущей волны — по нему сверяемся с задержками групп.
   waveTime: number;
 
@@ -96,6 +101,12 @@ type Hit = {
 const isGroupFullySpawned = (group: ActiveGroup): boolean =>
   group.startTime !== undefined && group.spawnedCount >= group.events.length;
 
+// Сколько опыта нужно, чтобы перейти со level на следующий уровень. Стандартная игровая кривая:
+// base × level^1.5 (округление вниз) — требования растут с каждым уровнем, но не удваиваются.
+// Читает config в момент вызова — ползунок LEVEL_XP_BASE применяется к следующему повышению.
+export const needForLevelUp = (level: number): number =>
+  Math.round(config.LEVEL_XP_BASE * Math.pow(level, 1.5));
+
 export const createGame = ({
   world,
   eventQueue,
@@ -117,10 +128,28 @@ export const createGame = ({
   const state: GameState = {
     waveIndex: startWaveIndex,
     round: 1,
+    level: 1,
+    xp: 0,
     waveTime: 0,
     groups: [],
     fireTimer: 0,
     status: 'playing',
+  };
+
+  // ─── ПРОКАЧКА ──────────────────────────────────────────────────────────────
+
+  // Начисляет опыт за убитого врага и двигает уровни. Пока уровень прокачивает только куб
+  // (опыт и уровень на виду в HUD, см. hud.setProgress) — сами бонусы уровня добавятся позже.
+  // Опыт сверх порога остаётся: за одну толпу можно перескочить несколько уровней сразу.
+  const addExperience = (amount: number): void => {
+    state.xp += amount;
+
+    while (state.xp >= needForLevelUp(state.level)) {
+      state.xp -= needForLevelUp(state.level);
+      state.level += 1;
+    }
+
+    hud.setProgress({ level: state.level, xp: state.xp, needed: needForLevelUp(state.level) });
   };
 
   // ─── ВОЛНЫ ─────────────────────────────────────────────────────────────────
@@ -323,8 +352,9 @@ export const createGame = ({
     if (enemy.hp <= 0) {
       turnIntoCorpse({ world, enemies, corpses, handle: enemyHandle });
 
-      // Звук смерти — сразу за звуком попадания: пуля добила врага.
+      // Звук смерти — сразу за звуком попадания: пуля добила врага. Опыт — по типу врага.
       sound.playDeath();
+      addExperience(enemy.kind.xp);
     }
   };
 
@@ -395,7 +425,10 @@ export const createGame = ({
     // если погиб хоть кто-то (массовую гибель сдерживает пауза MIN_GAP_MS в sound.ts).
     const corpsesBefore = corpses.size;
 
-    turnOutOfArenaIntoCorpses({ world, enemies, corpses });
+    // Враги, покинувшие арену, погибают сразу — это убийство, за него тоже начисляется опыт.
+    for (const enemy of turnOutOfArenaIntoCorpses({ world, enemies, corpses })) {
+      addExperience(enemy.kind.xp);
+    }
 
     if (corpses.size > corpsesBefore) {
       sound.playDeath();
@@ -419,7 +452,10 @@ export const createGame = ({
     state.fireTimer = 0;
     state.status = 'playing';
     state.round = 1;
+    state.level = 1;
+    state.xp = 0;
     hud.hideEndScreen();
+    hud.setProgress({ level: 1, xp: 0, needed: needForLevelUp(1) });
     startWave(waveIndex);
   };
 
