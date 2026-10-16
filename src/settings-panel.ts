@@ -111,6 +111,11 @@ export const SECTIONS: Section[] = [
       { key: 'DEATH_WALL_OPACITY', label: 'Непрозрачность границы', min: 0, max: 1, step: 0.05 },
       { key: 'DEATH_CEILING_HEIGHT', label: 'Потолок смерти, м', min: 2, max: 40, step: 0.5 },
       { key: 'ENEMY_COUNT_MULTIPLIER', label: 'Множитель врагов', min: 1, max: 200, step: 1, apply: 'nextWave' },
+      // Рост волн после обучающего круга: бюджет первой волны после него, рост за волну и делёж роста
+      // между числом врагов и их крепостью (см. «РОСТ ВОЛН» в config.ts и getWaveScale в schedule.ts).
+      { key: 'WAVE_ENDLESS_BUDGET', label: 'Бюджет после круга, HP', min: 10, max: 2000, step: 10, apply: 'nextWave' },
+      { key: 'WAVE_GROWTH', label: 'Рост волн, × за волну', min: 1, max: 1.3, step: 0.005, apply: 'nextWave' },
+      { key: 'WAVE_COUNT_SHARE', label: 'Доля роста в числе врагов', min: 0, max: 1, step: 0.05, apply: 'nextWave' },
       { key: 'SPAWN_PER_STEP', label: 'Появлений за шаг', min: 0, max: 500, step: 10 },
       { key: 'SPAWN_GAP', label: 'Зазор при появлении, м', min: 0, max: 2, step: 0.05 },
     ],
@@ -145,7 +150,7 @@ export const SECTIONS: Section[] = [
     title: 'Прокачка',
     settings: [
       // Порог уровня: need(level) = round(base × level^1.5). Опыт за врага — в папках типов («Опыт»).
-      { key: 'LEVEL_XP_BASE', label: 'Опыт: база уровня', min: 10, max: 1000, step: 10 },
+      { key: 'LEVEL_XP_BASE', label: 'Опыт: база уровня', min: 5, max: 500, step: 5 },
     ],
   },
   {
@@ -296,8 +301,9 @@ export type SettingsPanel = {
   // Проверка «событие произошло внутри панели?» — чтобы клик по панели не перезапускал игру.
   isPanelTarget: (target: EventTarget | null) => boolean;
 
-  // Синхронизирует селект выбора волны с реально идущей волной (вызывается при старте каждой волны).
-  setCurrentWave: (waveIndex: number) => void;
+  // Синхронизирует селект выбора волны с реально идущей волной (сквозной номер; вызывается при старте
+  // каждой волны).
+  setCurrentWave: (waveNumber: number) => void;
 };
 
 // Пояснение про пометки — первым элементом внутри панели. $children — контейнер её содержимого.
@@ -339,37 +345,38 @@ const addEnemyKinds = (folder: GUI): void => {
   }
 };
 
-// Раздел «Волны (отладка)»: ручной выбор волны. Выбранная волна запускается сразу (startGame в game.ts):
-// арена чистится от врагов, снарядов и призраков, счётчики обнуляются (в том числе круг — множитель 1).
-// После этого волны идут как обычно по кругу: до конца списка и дальше с начала, уже с большим множителем.
+// Поздние волны в селекте «Волна» — после обучающего круга (волн списка): проверить, как растёт сила.
+const LATE_WAVE_NUMBERS = [20, 30, 40, 50];
+
+// Раздел «Волны (отладка)»: ручной выбор волны по сквозному номеру. Выбранная волна запускается сразу
+// (startGame в game.ts): арена чистится от врагов, снарядов и призраков, счётчики обнуляются.
+// После этого волны идут как обычно: номер растёт, составы повторяются по кругу, сила — по номеру.
 // Это действие, а не настройка: объект picked в конфиг не входит, поэтому не сохраняется в localStorage
 // и не считается в «изменено: N».
 // Возвращает функцию синхронизации: селект показывает текущую волну (вызывается из startWave в game.ts),
-// иначе после автоматического перехода на следующую волну в селекте осталась бы старая.
-const addWavePicker = (gui: GUI, onStartWave: (waveIndex: number) => void): ((waveIndex: number) => void) => {
+// иначе после автоматического перехода на следующую волну в селекте осталась бы старая. Номера,
+// которого нет среди вариантов (например, 27), lil-gui показывает как есть.
+const addWavePicker = (gui: GUI, onStartWave: (waveNumber: number) => void): ((waveNumber: number) => void) => {
   const folder = gui.addFolder('Волны (отладка)');
-  const picked = { waveIndex: 0 };
+  const picked = { waveNumber: 1 };
 
-  // Варианты селекта: подпись — номер волны, значение — индекс в WAVES.
-  const options: Record<string, number> = {};
-
-  WAVES.forEach((_, index): void => {
-    options[`${index + 1}`] = index;
-  });
+  // Варианты селекта — сквозные номера: обучающий круг целиком и несколько поздних волн.
+  const waveNumbers = [...WAVES.map((_, index) => index + 1), ...LATE_WAVE_NUMBERS];
+  const options = Object.fromEntries(waveNumbers.map((waveNumber) => [`${waveNumber}`, waveNumber]));
 
   // Выбор волны запускает её сразу — иначе пришлось бы жать ещё и кнопку.
-  const waveController = folder.add(picked, 'waveIndex', options).name('Волна');
-  waveController.onChange((): void => onStartWave(picked.waveIndex));
+  const waveController = folder.add(picked, 'waveNumber', options).name('Волна');
+  waveController.onChange((): void => onStartWave(picked.waveNumber));
 
   // Кнопка — перезапуск уже выбранной волны: селект не подаёт события, если выбрали текущее значение.
   const actions = {
-    restart: (): void => onStartWave(picked.waveIndex),
+    restart: (): void => onStartWave(picked.waveNumber),
   };
 
   folder.add(actions, 'restart').name('Перезапустить волну');
 
-  return (waveIndex: number): void => {
-    picked.waveIndex = waveIndex;
+  return (waveNumber: number): void => {
+    picked.waveNumber = waveNumber;
     waveController.updateDisplay();
   };
 };
@@ -433,7 +440,7 @@ const addSoundSection = (gui: GUI, sound: Sound): void => {
 
 // Создаёт панель в правом верхнем углу. Свёрнута: видна только шапка, по клику раскрывается.
 // onChange вызывается при каждом изменении — там игра применяет то, что не читается само (цвета, гравитация).
-// onStartWave(index) — запустить волну с индексом index вручную (отладка, см. addWavePicker).
+// onStartWave(waveNumber) — запустить волну со сквозным номером waveNumber вручную (отладка, см. addWavePicker).
 // sound — звук игры: раздел «Звук» читает и меняет его наборы (см. addSoundSection).
 export const createSettingsPanel = ({
   onChange,
@@ -441,7 +448,7 @@ export const createSettingsPanel = ({
   sound,
 }: {
   onChange: () => void;
-  onStartWave: (waveIndex: number) => void;
+  onStartWave: (waveNumber: number) => void;
   sound: Sound;
 }): SettingsPanel => {
   // closeFolders — все разделы изначально свёрнуты, чтобы панель не занимала пол-экрана.

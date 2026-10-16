@@ -1,7 +1,7 @@
 // Юнит-тесты врагов (src/enemies.ts): границы арены и смерти, опора, появление, урон и движение
 // к центру на headless-Rapier. Шаг симуляции фиксированный — тесты детерминированы.
 import { describe, expect, it } from 'vitest';
-import { config } from '@/config';
+import { config, type EnemyKindName } from '@/config';
 import {
   damageEnemy,
   isEnemyAboveCeiling,
@@ -80,6 +80,10 @@ const getDampedSpeeds = async (damping: number): Promise<{ radial: number; tange
   return getSpeeds(enemy);
 };
 
+// Враг типа kindName в стороне от центра, появившийся в волне силы strength (см. spawnEnemy).
+const spawnWithStrength = (kindName: EnemyKindName, strength: number): Enemy =>
+  addTestEnemy({ world, scene, enemies: new Map(), x: 5, y: 0.4, z: 0, kindName, strength });
+
 describe('isEnemyOverArena', () => {
   it.each([
     ['в центре', 0, 0, true],
@@ -142,6 +146,24 @@ describe('spawnEnemy', () => {
     config.ENEMY_KINDS.normal.hp = 999;
 
     expect(enemy.kind.hp).toBe(40);
+  });
+
+  it('Должен умножить здоровье врага на силу волны', () => {
+    const enemy = spawnWithStrength('big', 2.5);
+
+    expect(enemy.hp).toBe(200);
+  });
+
+  it('Должен умножить опыт врага на силу волны', () => {
+    const enemy = spawnWithStrength('big', 2.5);
+
+    expect(enemy.kind.xp).toBe(100);
+  });
+
+  it('Должен оставить врагу хотя бы 1 HP при очень малой силе волны', () => {
+    const enemy = spawnWithStrength('tiny', 0.01);
+
+    expect(enemy.hp).toBe(1);
   });
 });
 

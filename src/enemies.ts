@@ -7,7 +7,8 @@ import { createHpBar, setHpBarValue, turnToCamera, type HpBar } from './hp-bar';
 
 // Враг — куб, который вращается вместе с телом (см. CubeEntity), плюс его тип (размер, масса,
 // здоровье, цвет — см. ENEMY_KINDS в config.ts), текущее здоровье и полоска здоровья.
-// kind — копия типа на момент появления: правка типа в панели настроек касается только новых врагов.
+// kind — копия типа на момент появления (здоровье и опыт — с поправкой на силу волны, см. spawnEnemy):
+// правка типа в панели настроек касается только новых врагов.
 export type Enemy = CubeEntity & {
   kind: EnemyKind;
   hp: number;
@@ -100,15 +101,25 @@ export const createEnemyCube = (kindName: EnemyKindName): THREE.Mesh => {
 // Создаёт врага типа kindName с центром в position и возвращает его. Где и какого типа — решает описание
 // волны (src/waves.ts, src/patterns.ts), а высоту — поиск свободного места (src/spawn-placement.ts):
 // обычно враг стоит на полу (центр на половине роста), но в тесноте может появиться ярусом выше и упасть.
+// strength — сила волны (см. getWaveScale в schedule.ts): во сколько раз у врага больше здоровья и опыта,
+// чем у его типа в ENEMY_KINDS. Округляем до целого; здоровье — не меньше 1: полоска здоровья делит на максимум.
 export const spawnEnemy = ({
   world,
   scene,
   entities,
   position,
   kindName,
-}: EntityContext<Enemy> & { position: THREE.Vector3Like; kindName: EnemyKindName }): Enemy => {
+  strength = 1,
+}: EntityContext<Enemy> & { position: THREE.Vector3Like; kindName: EnemyKindName; strength?: number }): Enemy => {
   const { x, y, z } = position;
-  const kind = { ...config.ENEMY_KINDS[kindName] };
+  const baseKind = config.ENEMY_KINDS[kindName];
+
+  const kind = {
+    ...baseKind,
+    hp: Math.max(1, Math.round(baseKind.hp * strength)),
+    xp: Math.round(baseKind.xp * strength),
+  };
+
   const { size, mass, hp } = kind;
 
   // dynamic — тело, которым управляет физика: оно падает, отлетает от ударов, кувыркается

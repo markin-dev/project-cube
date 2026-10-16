@@ -4,12 +4,8 @@ import { keepAboveSettingsPanel } from './layout';
 
 type WaveInfo = {
   // Сквозной номер волны для игрока — с 1: после первой десятки волны идут дальше (11, 12, …),
-  // хотя сами волны в списке повторяются с начала.
+  // хотя составы волн в списке повторяются с начала.
   number: number;
-
-  // Множитель текущего круга (с 1): во сколько раз больше врагов выпускает каждая группа.
-  // Показывается в строке номера («Волна 12 · ×2»), только когда больше 1.
-  multiplier: number;
 };
 
 type GroupInfo = {
@@ -144,8 +140,8 @@ export const createHud = (): Hud => {
     endScreen.style.display = isVisible && isEndScreenShown ? 'flex' : 'none';
   };
 
-  const setWave = ({ number, multiplier }: WaveInfo): void => {
-    waveLine.textContent = `Волна ${number}${multiplier > 1 ? ` · ×${multiplier}` : ''}`;
+  const setWave = ({ number }: WaveInfo): void => {
+    waveLine.textContent = `Волна ${number}`;
   };
 
   const setGroup = ({ number, total }: GroupInfo): void => {

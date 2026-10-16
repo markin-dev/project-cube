@@ -16,6 +16,10 @@ const ONE_ENEMY_WAVE: Wave = {
   groups: [{ shape: { type: 'random', count: 1 }, enemy: 'normal' }],
 };
 
+const ONE_TINY_WAVE: Wave = {
+  groups: [{ shape: { type: 'random', count: 1 }, enemy: 'tiny' }],
+};
+
 const TWO_GROUPS_WAVE: Wave = {
   groups: [
     { shape: { type: 'random', count: 1 }, enemy: 'normal' },
@@ -52,7 +56,7 @@ const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> =
     hud,
     showDamageNumber,
     waves,
-    startWaveIndex: 0,
+    startWaveNumber: 1,
     onWaveStart: vi.fn(),
   });
 
@@ -81,12 +85,20 @@ const pushOutOfArena = (enemies: Enemies): void => {
   }
 };
 
+// Проходит текущую волну из одной группы, выпускающей всех разом: враги появляются и тут же
+// погибают за краем арены — на последнем шаге уже начинается следующая волна.
+const clearWave = (game: Game): void => {
+  runSteps(game, 1);
+  pushOutOfArena(game.enemies);
+  runSteps(game, 1);
+};
+
 afterEach(() => vi.clearAllMocks());
 
 it('Должен показать номер стартовой волны', async () => {
   const { hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_ENEMY_WAVE] });
 
-  expect(hud.setWave).toHaveBeenCalledWith({ number: 1, multiplier: 1 });
+  expect(hud.setWave).toHaveBeenCalledWith({ number: 1 });
 });
 
 describe('группы волны', () => {
@@ -127,36 +139,56 @@ describe('конец волны', () => {
   it('Должен перейти к следующей волне, когда враги текущей убиты', async () => {
     const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_ENEMY_WAVE] });
 
-    runSteps(game, 1);
-    pushOutOfArena(game.enemies);
-    runSteps(game, 1);
+    clearWave(game);
 
-    expect(game.state.waveIndex).toBe(1);
+    expect(game.state.waveNumber).toBe(2);
   });
 
-  it('Должен начать новый круг с первой волны после последней', async () => {
-    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+  it('Должен после последней волны списка снова взять состав первой', async () => {
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_TINY_WAVE] });
 
-    runSteps(game, 1);
-    pushOutOfArena(game.enemies);
-    runSteps(game, 1);
+    // Две волны в списке: добиваем обе — третья берёт состав первой (normal), а не второй (tiny).
+    clearWave(game);
+    clearWave(game);
 
-    expect(game.state.waveIndex).toBe(0);
-    expect(game.state.round).toBe(2);
-    expect(game.state.status).toBe('playing');
+    expect(new Set(game.state.groups[0].events.map(({ kindName }) => kindName))).toEqual(new Set(['normal']));
   });
 
-  it('Должен показать сквозной номер волны и множитель нового круга', async () => {
+  it('Должен показать сквозной номер волны после последней волны списка', async () => {
     const { game, hud } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_ENEMY_WAVE] });
 
-    // Две волны в круге: добиваем обе — игра возвращается к первой, но номер на экране 3 и множитель 2.
-    for (let wave = 0; wave < 2; wave += 1) {
-      runSteps(game, 1);
-      pushOutOfArena(game.enemies);
-      runSteps(game, 1);
-    }
+    clearWave(game);
+    clearWave(game);
 
-    expect(hud.setWave).toHaveBeenLastCalledWith({ number: 3, multiplier: 2 });
+    expect(hud.setWave).toHaveBeenLastCalledWith({ number: 3 });
+  });
+});
+
+describe('рост волн', () => {
+  it('Должен выпустить врагов волны после круга крепче', async () => {
+    // Волна после круга — бюджет 160 против записанных 40 (один normal): рост ×4 целиком в крепость.
+    config.WAVE_ENDLESS_BUDGET = 160;
+    config.WAVE_COUNT_SHARE = 0;
+
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    clearWave(game);
+    runSteps(game, 1);
+
+    expect([...game.enemies.values()].map(({ hp }) => hp)).toEqual([160]);
+  });
+
+  it('Должен выпустить больше врагов в волне после круга', async () => {
+    // Тот же рост ×4, но целиком в число врагов.
+    config.WAVE_ENDLESS_BUDGET = 160;
+    config.WAVE_COUNT_SHARE = 1;
+
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    clearWave(game);
+    runSteps(game, 1);
+
+    expect(game.enemies.size).toBe(4);
   });
 });
 
@@ -194,22 +226,20 @@ describe('бой', () => {
 
 describe('прокачка', () => {
   it('Должен начислить опыт за убитого попаданием врага', async () => {
-    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+    const { game } = await createTestGame({ waves: [ONE_TINY_WAVE] });
 
     runUntil({ game, isDone: () => game.enemies.size === 0, maxSeconds: 5 });
 
-    // ONE_ENEMY_WAVE — normal, его опыт 20.
-    expect(game.state.xp).toBe(20);
+    // ONE_TINY_WAVE — крошка, её опыт 5: меньше порога первого уровня, весь остаётся в xp.
+    expect(game.state.xp).toBe(5);
   });
 
   it('Должен начислить опыт за врага, выброшенного за арену', async () => {
-    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+    const { game } = await createTestGame({ waves: [ONE_TINY_WAVE] });
 
-    runSteps(game, 1);
-    pushOutOfArena(game.enemies);
-    runSteps(game, 1);
+    clearWave(game);
 
-    expect(game.state.xp).toBe(20);
+    expect(game.state.xp).toBe(5);
   });
 
   it('Должен поднять уровень, когда опыт перешёл порог', async () => {
@@ -261,11 +291,21 @@ describe('update', () => {
   });
 });
 
-it('startGame: Должен очистить арену', async () => {
-  const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+describe('startGame', () => {
+  it('Должен очистить арену', async () => {
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
 
-  runSteps(game, 1);
-  game.startGame();
+    runSteps(game, 1);
+    game.startGame();
 
-  expect(game.enemies.size).toBe(0);
+    expect(game.enemies.size).toBe(0);
+  });
+
+  it('Должен начать игру с переданного сквозного номера волны', async () => {
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE, ONE_TINY_WAVE] });
+
+    game.startGame(12);
+
+    expect(game.state.waveNumber).toBe(12);
+  });
 });

@@ -33,13 +33,14 @@ const MAX_FRAME_TIME = 0.1;
 // попадания. При ускорении игровое время кадра делится на несколько шагов не длиннее этого.
 const MAX_TIMESTEP = 1 / 30;
 
-// С какой волны начинать (индекс в WAVES, с 0). Для отладки волн её можно задать в адресе: ?wave=3
-// начнёт игру с третьей волны. Нет параметра или он неправильный — начинаем с первой.
-const getStartWaveIndex = (): number => {
+// С какой волны начинать (сквозной номер, с 1). Для отладки волн её можно задать в адресе: ?wave=3
+// начнёт игру с третьей волны, ?wave=30 — сразу с поздней (составы по кругу, сила по номеру).
+// Нет параметра или он неправильный — начинаем с первой.
+const getStartWaveNumber = (): number => {
   const wave = Number(new URLSearchParams(window.location.search).get('wave'));
-  const isValidWave = Number.isInteger(wave) && wave >= 1 && wave <= WAVES.length;
+  const isValidWave = Number.isInteger(wave) && wave >= 1;
 
-  return isValidWave ? wave - 1 : 0;
+  return isValidWave ? wave : 1;
 };
 
 // ─── СОЗДАНИЕ МИРА ───────────────────────────────────────────────────────────
@@ -99,7 +100,7 @@ const applyLiveConfig = (): void => {
 // берём через стрелку, панель вызовет её уже после создания игры. sound — раздел «Звук»: выбор наборов.
 const settingsPanel = createSettingsPanel({
   onChange: applyLiveConfig,
-  onStartWave: (waveIndex: number): void => game.startGame(waveIndex),
+  onStartWave: (waveNumber: number): void => game.startGame(waveNumber),
   sound,
 });
 
@@ -113,7 +114,7 @@ const game: Game = createGame({
   hud,
   showDamageNumber: createDamageNumbers({ camera }),
   waves: WAVES,
-  startWaveIndex: getStartWaveIndex(),
+  startWaveNumber: getStartWaveNumber(),
   onWaveStart: settingsPanel.setCurrentWave,
 });
 

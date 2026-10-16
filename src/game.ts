@@ -11,7 +11,7 @@ import { damageEnemy, moveEnemies, spawnEnemy, type Enemies, type Enemy } from '
 import { removeAllEntities, removeEntity, removeFallenEntities } from './entity';
 import type { Hud } from './hud';
 import { findTargets, fireProjectiles, removeFarProjectiles, runFireTimer, type Projectiles } from './projectiles';
-import { buildWaveSchedule, countDueEvents, type GroupSchedule } from './schedule';
+import { buildWaveSchedule, countDueEvents, getWaveScale, type GroupSchedule } from './schedule';
 import type { Sound } from './sound';
 import { createSpawnPlacer } from './spawn-placement';
 import type { Sparks } from './sparks';
@@ -29,13 +29,13 @@ type ActiveGroup = GroupSchedule & {
 };
 
 export type GameState = {
-  // Индекс текущей волны в списке волн, с 0 (0…waves.length − 1): после последней волны круга
-  // игра возвращается к первой. Игроку показываем не этот индекс, а сквозной номер — см. waveNumber.
-  waveIndex: number;
+  // Сквозной номер текущей волны (с 1) — его видит игрок. Составы волн берутся из списка по кругу:
+  // волна N — это waves[(N − 1) mod waves.length], а сила растёт с номером (см. getWaveScale в schedule.ts).
+  waveNumber: number;
 
-  // Текущий круг (с 1): каждые waves.length волн множество увеличивается на 1 и волны начинаются
-  // сначала. Круг = множитель сложности: столько раз больше врагов выпускает каждая группа.
-  round: number;
+  // Сила текущей волны: во сколько раз у её врагов больше здоровья и опыта, чем у их типов
+  // в ENEMY_KINDS (1 — в обучающем круге, дальше растёт; см. getWaveScale в schedule.ts).
+  strength: number;
 
   // Прокачка куба: уровень (с 1) и накопленный на него опыт. Порог следующего уровня —
   // needForLevelUp(state.level) в game.ts; опыт сверх порога не пропадает.
@@ -67,12 +67,12 @@ export type GameParams = {
   hud: Hud;
   showDamageNumber: ShowDamageNumber;
 
-  // Список волн и с какой начинать (индекс, с 0).
+  // Список волн и с какой начинать (сквозной номер, с 1; больше длины списка — уже поздняя волна).
   waves: Wave[];
-  startWaveIndex: number;
+  startWaveNumber: number;
 
-  // Вызывается при старте каждой волны — селект «Волна» в панели показывает текущую.
-  onWaveStart: (waveIndex: number) => void;
+  // Вызывается при старте каждой волны со сквозным номером — селект «Волна» в панели показывает текущую.
+  onWaveStart: (waveNumber: number) => void;
 };
 
 export type Game = {
@@ -83,9 +83,9 @@ export type Game = {
   projectiles: Projectiles;
   corpses: Corpses;
 
-  // Новая игра без перезагрузки страницы: арена очищается, игра начинается с волны waveIndex
-  // (по умолчанию — со стартовой).
-  startGame: (waveIndex?: number) => void;
+  // Новая игра без перезагрузки страницы: арена очищается, игра начинается с волны waveNumber
+  // (сквозной номер; по умолчанию — со стартовой).
+  startGame: (waveNumber?: number) => void;
 
   // Один шаг симуляции длиной delta секунд. После конца игры ничего не делает — всё замирает.
   update: (delta: number) => void;
@@ -117,7 +117,7 @@ export const createGame = ({
   hud,
   showDamageNumber,
   waves,
-  startWaveIndex,
+  startWaveNumber,
   onWaveStart,
 }: GameParams): Game => {
   const enemies: Enemies = new Map();
@@ -126,8 +126,8 @@ export const createGame = ({
 
   // Объект один на всю игру, меняем его поля. Настоящие стартовые значения выставляет startGame.
   const state: GameState = {
-    waveIndex: startWaveIndex,
-    round: 1,
+    waveNumber: startWaveNumber,
+    strength: 1,
     level: 1,
     xp: 0,
     waveTime: 0,
@@ -154,18 +154,19 @@ export const createGame = ({
 
   // ─── ВОЛНЫ ─────────────────────────────────────────────────────────────────
 
-  // Сквозной номер волны для игрока: первая десятка — 1…10, вторая круга — 11…20 и т.д.
-  const waveNumber = (): number => (state.round - 1) * waves.length + state.waveIndex + 1;
+  // Начинает волну со сквозным номером waveNumber: состав — из списка по кругу, а число врагов и их сила —
+  // по номеру (см. getWaveScale): первый проход по списку идёт как записан, дальше волны всё тяжелее.
+  const startWave = (waveNumber: number): void => {
+    const wave = waves[(waveNumber - 1) % waves.length];
+    const scale = getWaveScale({ wave, waveNumber, cycleLength: waves.length });
 
-  const startWave = (waveIndex: number): void => {
-    const wave = waves[waveIndex];
-
-    state.waveIndex = waveIndex;
+    state.waveNumber = waveNumber;
+    state.strength = scale.strength;
     state.waveTime = 0;
-    state.groups = buildWaveSchedule(wave, state.round).map((group) => ({ ...group, spawnedCount: 0 }));
-    hud.setWave({ number: waveNumber(), multiplier: state.round });
+    state.groups = buildWaveSchedule(wave, scale.count).map((group) => ({ ...group, spawnedCount: 0 }));
+    hud.setWave({ number: waveNumber });
     hud.setGroup({ number: 0, total: state.groups.length });
-    onWaveStart(waveIndex);
+    onWaveStart(waveNumber);
   };
 
   // Начинает группы, которым пора. Группы идут строго по порядку списка, и очередная начинается,
@@ -239,7 +240,7 @@ export const createGame = ({
       for (const event of group.events.slice(group.spawnedCount, group.spawnedCount + spawnCount)) {
         const position = placeEnemy({ point: event, size: config.ENEMY_KINDS[event.kindName].size });
 
-        spawnEnemy({ world, scene, entities: enemies, position, kindName: event.kindName });
+        spawnEnemy({ world, scene, entities: enemies, position, kindName: event.kindName, strength: state.strength });
       }
 
       group.spawnedCount += spawnCount;
@@ -250,15 +251,14 @@ export const createGame = ({
     state.status = 'lost';
 
     hud.showEndScreen({
-      title: `Поражение — волна ${waveNumber()}`,
+      title: `Поражение — волна ${state.waveNumber}`,
       hint: 'Нажми, чтобы начать заново',
     });
   };
 
   // Волна закончена, когда все её группы начались, все их враги появились и все убиты.
-  // Следующая начинается сразу; после последней волны круга волны идут сначала (первая снова),
-  // но круг увеличивается на 1 — каждая группа выпускает в столько раз больше врагов, — а отсчёт
-  // волн у игрока продолжается сквозной: 11, 12, 13 …
+  // Следующая начинается сразу. После последней волны списка составы идут сначала, а номер у игрока
+  // продолжается сквозной (11, 12, 13 …) — и с ним растёт сила волн.
   const advanceWave = (): void => {
     const isWaveCleared = state.groups.every(isGroupFullySpawned) && enemies.size === 0;
 
@@ -266,16 +266,7 @@ export const createGame = ({
       return;
     }
 
-    const isLastWave = state.waveIndex === waves.length - 1;
-
-    if (isLastWave) {
-      state.round += 1;
-      startWave(0);
-
-      return;
-    }
-
-    startWave(state.waveIndex + 1);
+    startWave(state.waveNumber + 1);
   };
 
   // ─── СТРЕЛЬБА И СТОЛКНОВЕНИЯ ───────────────────────────────────────────────
@@ -444,19 +435,18 @@ export const createGame = ({
     advanceWave();
   };
 
-  const startGame = (waveIndex: number = startWaveIndex): void => {
+  const startGame = (waveNumber: number = startWaveNumber): void => {
     removeAllEntities({ world, scene, entities: enemies });
     removeAllEntities({ world, scene, entities: projectiles });
     removeAllEntities({ world, scene, entities: corpses });
     sparks.clear();
     state.fireTimer = 0;
     state.status = 'playing';
-    state.round = 1;
     state.level = 1;
     state.xp = 0;
     hud.hideEndScreen();
     hud.setProgress({ level: 1, xp: 0, needed: needForLevelUp(1) });
-    startWave(waveIndex);
+    startWave(waveNumber);
   };
 
   return { state, enemies, projectiles, corpses, startGame, update };

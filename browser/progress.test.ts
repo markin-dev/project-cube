@@ -8,7 +8,7 @@ import { waitUntil } from './helpers';
 
 it('Должен показать полосу опыта с уровнем при старте', () => {
   expect(document.body.innerText).toContain('Уровень 1');
-  expect(document.body.innerText).toContain('0 / 100');
+  expect(document.body.innerText).toContain('0 / 20');
 });
 
 it('Должен начислять опыт за убитых врагов и поднимать уровень', async () => {
