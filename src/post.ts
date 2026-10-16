@@ -16,8 +16,9 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { config } from './config';
 
 export type Post = {
-  // Один кадр: сцена с ореолом или, если BLOOM_ENABLED выключен, просто сцена.
-  render: () => void;
+  // Один кадр: переданная сцена с ореолом или, если BLOOM_ENABLED выключена, просто сцена.
+  // Сцену передаём каждый кадр: игра и демо-сцена чередуются (см. main.ts).
+  render: (scene: THREE.Scene) => void;
 
   // Пересобрать цепочку под новый размер окна — её текстуры имеют размер экрана.
   setSize: () => void;
@@ -25,11 +26,9 @@ export type Post = {
 
 export const createPost = ({
   renderer,
-  scene,
   camera,
 }: {
   renderer: THREE.WebGLRenderer;
-  scene: THREE.Scene;
   camera: THREE.OrthographicCamera;
 }): Post => {
   // Сцепка проходов (EffectComposer): каждый берёт картинку предыдущего и кладёт свою.
@@ -40,7 +39,10 @@ export const createPost = ({
   // Без OutputPass картинка осталась бы «сырой»: остальные проходы пишут линейные цвета.
   const composer = new EffectComposer(renderer);
 
-  composer.addPass(new RenderPass(scene, camera));
+  // Сцена у RenderPass — заглушка: render ставит её перед каждым кадром (render.scene — обычное поле).
+  const renderPass = new RenderPass(new THREE.Scene(), camera);
+
+  composer.addPass(renderPass);
 
   // Начальные параметры ореола — временные: перед каждым кадром их перепишет render по конфигу.
   // Размер — размер окна: он нужен, чтобы считать размытие в тех же пропорциях, что и кадр.
@@ -49,7 +51,7 @@ export const createPost = ({
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
 
-  const render = (): void => {
+  const render = (scene: THREE.Scene): void => {
     if (!config.BLOOM_ENABLED) {
       renderer.render(scene, camera);
 
@@ -60,6 +62,7 @@ export const createPost = ({
     bloom.strength = config.BLOOM_STRENGTH;
     bloom.radius = config.BLOOM_RADIUS;
     bloom.threshold = config.BLOOM_THRESHOLD;
+    renderPass.scene = scene;
 
     composer.render();
   };

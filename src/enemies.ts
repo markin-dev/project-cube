@@ -84,6 +84,19 @@ export const isEnemyAboveCeiling = ({ body }: Pick<Enemy, 'body'>): boolean =>
 // пол твёрдый, и центр стоящего врага не ниже половины его роста. Значит, враг сорвался с края арены.
 export const isEnemyBelowFloor = ({ body }: Pick<Enemy, 'body'>): boolean => body.translation().y < 0;
 
+// Видимый куб врага типа kindName: сторона — размер типа (масштаб единичной геометрии),
+// цвет — общий материал типа (refreshEnemyColors). castShadow/receiveShadow — тени (см. scene.ts).
+// Экспортируется для демо-сцены (src/demo-scene.ts): там стоят кубы всех типов.
+export const createEnemyCube = (kindName: EnemyKindName): THREE.Mesh => {
+  const cube = new THREE.Mesh(ENEMY_GEOMETRY, KIND_MATERIALS[kindName]);
+
+  cube.scale.setScalar(config.ENEMY_KINDS[kindName].size);
+  cube.castShadow = true;
+  cube.receiveShadow = true;
+
+  return cube;
+};
+
 // Создаёт врага типа kindName с центром в position и возвращает его. Где и какого типа — решает описание
 // волны (src/waves.ts, src/patterns.ts), а высоту — поиск свободного места (src/spawn-placement.ts):
 // обычно враг стоит на полу (центр на половине роста), но в тесноте может появиться ярусом выше и упасть.
@@ -129,13 +142,9 @@ export const spawnEnemy = ({
   // Видимый враг — группа, которая только двигается вместе с телом. Внутри неё:
   // куб — вращается вместе с телом (кувыркается);
   // полоска здоровья — не вращается и висит над центром врага, на полстороны куба плюс зазор выше.
-  const cube = new THREE.Mesh(ENEMY_GEOMETRY, KIND_MATERIALS[kindName]);
-  cube.scale.setScalar(size);
-
-  // Тени: куб отбрасывает тень на пол и на врагов под ним и принимает тени сверху (см. scene.ts).
-  // Полоска здоровья тени не отбрасывает — она тонкая и всегда развёрнута к камере.
-  cube.castShadow = true;
-  cube.receiveShadow = true;
+  // Размер куба — config.ENEMY_KINDS[kindName].size, а kind — его копия со значением на момент
+  // появления, поэтому масштабы совпадают.
+  const cube = createEnemyCube(kindName);
 
   const hpBar = createHpBar();
   hpBar.group.position.y = size / 2 + config.HP_BAR_GAP;

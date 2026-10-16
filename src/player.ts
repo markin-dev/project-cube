@@ -11,9 +11,22 @@ type PlayerParams = {
 // Материал игрока общий на модуль, чтобы его цвет можно было поменять из панели настроек (refreshPlayerColor).
 const PLAYER_MATERIAL = new THREE.MeshLambertMaterial({ color: config.PLAYER_COLOR });
 
+// Видимый куб игрока: сторона — PLAYER_SIZE, цвет — общий материал модуля (refreshPlayerColor).
+// castShadow/receiveShadow — куб отбрасывает тень и принимает тени врагов (см. scene.ts).
+// Экспортируется для демо-сцены (src/demo-scene.ts): там стоит такой же куб.
+// Игрок создаётся один раз, поэтому PLAYER_SIZE из панели настроек применяется после перезагрузки страницы.
+export const createPlayerCube = (): THREE.Mesh => {
+  const size = config.PLAYER_SIZE;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), PLAYER_MATERIAL);
+
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  return mesh;
+};
+
 // Создаёт игрока — неподвижный куб в центре арены.
 // Возвращает handle его коллайдера: по нему в событиях столкновений узнаём, что враг добрался до игрока.
-// Игрок создаётся один раз, поэтому PLAYER_SIZE из панели настроек применяется после перезагрузки страницы.
 export const createPlayer = ({ world, scene }: PlayerParams): ColliderHandle => {
   const size = config.PLAYER_SIZE;
 
@@ -33,12 +46,9 @@ export const createPlayer = ({ world, scene }: PlayerParams): ColliderHandle => 
   );
 
   // Видимый куб того же размера. Игрок не двигается, поэтому положение задаём один раз.
-  // castShadow/receiveShadow — куб отбрасывает тень и принимает тени врагов (см. scene.ts).
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), PLAYER_MATERIAL);
+  const mesh = createPlayerCube();
 
   mesh.position.copy(body.translation());
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
   scene.add(mesh);
 
   return collider.handle;

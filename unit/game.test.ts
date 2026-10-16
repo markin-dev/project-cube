@@ -34,7 +34,13 @@ type TestGame = {
 
 const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> => {
   const { world, eventQueue, scene } = await createTestWorld();
-  const hud = { setWave: vi.fn(), setGroup: vi.fn(), showEndScreen: vi.fn(), hideEndScreen: vi.fn() };
+  const hud = {
+    setWave: vi.fn(),
+    setGroup: vi.fn(),
+    showEndScreen: vi.fn(),
+    hideEndScreen: vi.fn(),
+    setVisible: vi.fn(),
+  };
   const showDamageNumber = vi.fn();
 
   const game = createGame({

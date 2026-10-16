@@ -24,6 +24,10 @@ export type Hud = {
   setGroup: (group: GroupInfo) => void;
   showEndScreen: (text: EndScreenText) => void;
   hideEndScreen: () => void;
+
+  // Показывать ли HUD вообще: в демо-режиме (см. demo-scene.ts) игровые надписи скрыты.
+  // Скрытие не трогает состояние надписей — при возврате к игре они появляются снова сами.
+  setVisible: (visible: boolean) => void;
 };
 
 export const createHud = (): Hud => {
@@ -74,6 +78,15 @@ export const createHud = (): Hud => {
 
   document.body.append(waveLabel, endScreen);
 
+  // HUD может быть целиком скрыт (демо-режим), при этом состояние надписей сохраняется:
+  // скрытый экран поражения не пропадает из памяти и вернётся при показе HUD.
+  let isVisible = true;
+  let isEndScreenShown = false;
+
+  const applyEndScreen = (): void => {
+    endScreen.style.display = isVisible && isEndScreenShown ? 'flex' : 'none';
+  };
+
   const setWave = ({ number, total, name }: WaveInfo): void => {
     waveLine.textContent = `Волна ${number} / ${total}`;
     nameLine.textContent = name;
@@ -89,12 +102,20 @@ export const createHud = (): Hud => {
       <div>${hint}</div>
     `;
 
-    endScreen.style.display = 'flex';
+    isEndScreenShown = true;
+    applyEndScreen();
   };
 
   const hideEndScreen = (): void => {
-    endScreen.style.display = 'none';
+    isEndScreenShown = false;
+    applyEndScreen();
   };
 
-  return { setWave, setGroup, showEndScreen, hideEndScreen };
+  const setVisible = (visible: boolean): void => {
+    isVisible = visible;
+    waveLabel.style.display = visible ? '' : 'none';
+    applyEndScreen();
+  };
+
+  return { setWave, setGroup, showEndScreen, hideEndScreen, setVisible };
 };

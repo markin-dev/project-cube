@@ -38,7 +38,9 @@ const hasMaterial = (
 // Просит three пересобрать шейдеры всех материалов сцены. Нужно, когда меняется то, что зашито
 // в шейдер, а не в uniform: включение теней (в них закладывается работа с картой теней)
 // и тонмаппинг (он применяется прямо в материале при отрисовке на экран).
-const recompileMaterials = (scene: THREE.Scene): void => {
+// Экспортируется для демо-сцены (src/demo-scene.ts): у неё свои объекты со своими материалами,
+// и при смене этих настроек их шейдеры тоже нужно пересобрать.
+export const recompileMaterials = (scene: THREE.Scene): void => {
   scene.traverse((object): void => {
     if (!hasMaterial(object)) {
       return;
@@ -70,7 +72,7 @@ const ARENA_HALF_DIAGONAL = (config.ARENA_SIZE / 2) * Math.SQRT2;
 // при загрузке — если поменять её в панели, камера подстроится после перезагрузки.
 // Запас 10% — чтобы арена не упиралась в края экрана.
 const VIEW_MARGIN = 1.1;
-const NEED_HALF_WIDTH = ARENA_HALF_DIAGONAL * VIEW_MARGIN;
+export const NEED_HALF_WIDTH = ARENA_HALF_DIAGONAL * VIEW_MARGIN;
 
 const NEED_HALF_HEIGHT =
   (ARENA_HALF_DIAGONAL / Math.sqrt(3) + config.DEATH_WALL_HEIGHT * Math.sqrt(2 / 3)) * VIEW_MARGIN;
@@ -81,6 +83,20 @@ const CAMERA_DISTANCE = 30;
 
 // Материал пола общий на модуль, чтобы его цвет можно было поменять из панели настроек (refreshSceneLook).
 const FLOOR_MATERIAL = new THREE.MeshLambertMaterial({ color: config.FLOOR_COLOR });
+
+// Видимый пол арены. Сталкиваются тела не с ним, а с его физическим двойником — коллайдером
+// такого же размера из physics.ts. Высота 0.2, центр опущен на 0.1 — верхняя поверхность ровно на y = 0.
+// receiveShadow — пол принимает тени (сам тени не отбрасывает: он плоский и лежит на месте солнца).
+// Материал общий со сценой игры, поэтому перекраска FLOOR_MATERIAL (refreshSceneLook) действует на все полы.
+// Экспортируется для демо-сцены (src/demo-scene.ts): там такой же пол под модельками.
+export const createFloor = (): THREE.Mesh => {
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(config.ARENA_SIZE, 0.2, config.ARENA_SIZE), FLOOR_MATERIAL);
+
+  floor.position.y = -0.1;
+  floor.receiveShadow = true;
+
+  return floor;
+};
 
 type SceneParts = {
   scene: THREE.Scene;
@@ -170,14 +186,7 @@ export const createScene = (): SceneParts => {
 
   // ─── ПОЛ ───────────────────────────────────────────────────────────────────
 
-  // Видимый пол. Сталкиваются тела не с ним, а с его физическим двойником — коллайдером
-  // такого же размера из physics.ts. Высота 0.2, центр опущен на 0.1 — верхняя поверхность ровно на y = 0.
-  // receiveShadow — пол принимает тени (сам тени не отбрасывает: он плоский и лежит на месте солнца).
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(config.ARENA_SIZE, 0.2, config.ARENA_SIZE), FLOOR_MATERIAL);
-
-  floor.position.y = -0.1;
-  floor.receiveShadow = true;
-  scene.add(floor);
+  scene.add(createFloor());
 
   // Прозрачные стенки по краям пола — граница, за которой враг погибает.
   const deathWalls = createDeathWalls();

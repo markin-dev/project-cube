@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { config } from './config';
 import { refreshCorpseLook } from './corpses';
 import { createDamageNumbers } from './damage-numbers';
+import { createDemoScene } from './demo-scene';
 import { refreshEnemyColors, turnHpBarsToCamera } from './enemies';
 import { syncCubeRotations, syncPositions } from './entity';
 import { createFpsCounter } from './fps-counter';
@@ -59,7 +60,16 @@ const sparks = createSparks({ scene });
 const sound = createSound();
 
 // Ореол вокруг ярких мест (bloom) — считается пост-обработкой после сцены (см. post.ts).
-const post = createPost({ renderer, scene, camera });
+// Сцену каждый кадр передаёт сам: игра или демо-витрина (см. SCENE_MODE).
+const post = createPost({ renderer, camera });
+
+// Демо-сцена — витрина всех модельок игры (см. demo-scene.ts). Создаётся сразу, чтобы переключение
+// в панели настроек работало без перезагрузки; рисуется вместо игры, пока SCENE_MODE = 'demo'.
+const demoScene = createDemoScene({ camera });
+
+// HUD скрыт сразу, если сохранён в браузере демо-режим: applyLiveConfig вызывается только при
+// правках панели, а состояние может прийти из localStorage ещё до первого изменения.
+hud.setVisible(config.SCENE_MODE !== 'demo');
 
 // Цепочка пост-обработки держит текстуры в размер экрана — при повороте и ресайзе пересобираем их.
 // Canvas и камера меняют размер в своём слушателе (см. scene.ts), здесь это не нужно.
@@ -79,6 +89,10 @@ const applyLiveConfig = (): void => {
   sparks.refreshColor();
   sound.applyVolume();
   world.gravity = { x: 0, y: -config.GRAVITY, z: 0 };
+
+  // Демо-сцена: свой фон, свет и кучки искр + видимость HUD (скрыт в демо-режиме).
+  demoScene.refresh();
+  hud.setVisible(config.SCENE_MODE !== 'demo');
 };
 
 // Панель настроек. onStartWave — ручной запуск волны из раздела «Волны (отладка)»: ссылку на игру
@@ -127,8 +141,10 @@ const isUiTarget = (target: EventTarget | null): boolean =>
   settingsPanel.isPanelTarget(target) || speedSwitch.isSwitchTarget(target);
 
 // После конца игры клик или пробел начинают её заново со стартовой волны.
+// В демо-режиме (витрина модельок) клики и пробел игру не перезапускают: сцена статична,
+// а перезапуск при возврате к игре был бы неожиданным (см. demo-scene.ts).
 const restartGame = (): void => {
-  if (game.state.status !== 'playing') {
+  if (config.SCENE_MODE !== 'demo' && game.state.status !== 'playing') {
     game.startGame();
   }
 };
@@ -175,31 +191,37 @@ renderer.setAnimationLoop((time: number): void => {
   // Игровое время кадра — реальное, умноженное на выбранную скорость (0 — пауза).
   const gameTime = Math.min(realDelta, MAX_FRAME_TIME) * loop.timeScale;
 
+  // Демо-режим (SCENE_MODE = 'demo', см. demo-scene.ts): игра замирает как на паузе — ни шагов
+  // логики, ни синхронизации позиций, ни света от снарядов. Рисуется витрина модельок.
+  const isDemoMode = config.SCENE_MODE === 'demo';
+
   // На ускорении игровое время кадра длиннее допустимого шага физики — делим его на несколько равных
   // шагов не длиннее MAX_TIMESTEP и на каждом целиком обновляем игру. Так попадания и физика работают
   // так же, как на обычной скорости, только шагов за кадр больше (и нагрузка выше).
   // На паузе шагов ноль: игра стоит, но сцену продолжаем рисовать.
-  const stepsCount = Math.ceil(gameTime / MAX_TIMESTEP);
+  const stepsCount = isDemoMode ? 0 : Math.ceil(gameTime / MAX_TIMESTEP);
 
   Array.from({ length: stepsCount }).forEach((): void => game.update(gameTime / stepsCount));
 
-  syncPositions(game.enemies);
-  syncPositions(game.projectiles);
-  syncPositions(game.corpses);
-  syncCubeRotations(game.enemies);
-  syncCubeRotations(game.corpses);
-  turnHpBarsToCamera(game.enemies, camera);
-  sparks.sync();
+  if (!isDemoMode) {
+    syncPositions(game.enemies);
+    syncPositions(game.projectiles);
+    syncPositions(game.corpses);
+    syncCubeRotations(game.enemies);
+    syncCubeRotations(game.corpses);
+    turnHpBarsToCamera(game.enemies, camera);
+    sparks.sync();
 
-  // Свет от снарядов и искр: пул точечных источников (см. lighting.ts) каждый кадр переезжает на самые
-  // горящие точки — свежие вспышки попаданий и летящие пули. Кандидатов берём с запасом (весь пул),
-  // а распределение по источникам делает setGlowLights: он отберёт самые яркие.
-  setGlowLights(sceneParts.glowLights, [
-    ...sparks.getBursts(MAX_GLOW_LIGHTS),
-    ...getGlowSources(game.projectiles),
-  ]);
+    // Свет от снарядов и искр: пул точечных источников (см. lighting.ts) каждый кадр переезжает на самые
+    // горящие точки — свежие вспышки попаданий и летящие пули. Кандидатов берём с запасом (весь пул),
+    // а распределение по источникам делает setGlowLights: он отберёт самые яркие.
+    setGlowLights(sceneParts.glowLights, [
+      ...sparks.getBursts(MAX_GLOW_LIGHTS),
+      ...getGlowSources(game.projectiles),
+    ]);
+  }
 
-  post.render();
+  post.render(isDemoMode ? demoScene.scene : scene);
 });
 
 // ─── ТЕСТОВЫЙ ДОСТУП ─────────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ import {
 } from './config-storage';
 import { MAX_GLOW_LIGHTS, SHADOW_MAP_SIZE_OPTIONS } from './lighting';
 import { watchNarrowScreen } from './layout';
+import { SCENE_MODE_OPTIONS } from './demo-scene';
 import { TONE_MAPPING_OPTIONS } from './scene';
 import { SOUND_SETS, type Sound, type SoundType } from './sound';
 import { WAVES } from './waves';
@@ -93,6 +94,13 @@ type Section = {
 };
 
 export const SECTIONS: Section[] = [
+  {
+    // Переключатель сцены: игра или витрина модельок (demo-scene.ts). Первый раздел — чтобы
+    // не искать его внизу длинного списка.
+    title: 'Сцена',
+    settings: [],
+    selects: [{ key: 'SCENE_MODE', label: 'Что показывать', options: SCENE_MODE_OPTIONS }],
+  },
   {
     title: 'Арена и волны',
     settings: [

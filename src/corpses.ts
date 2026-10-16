@@ -28,6 +28,12 @@ const CORPSE_MATERIAL = new THREE.MeshLambertMaterial({
   depthWrite: false,
 });
 
+// Превращает куб врага в призрак: меняет материал на полупрозрачный. Вызывается и при настоящей
+// гибели (turnIntoCorpse), и при сборке демо-сцены (src/demo-scene.ts).
+export const applyCorpseLook = (cube: THREE.Mesh): void => {
+  cube.material = CORPSE_MATERIAL;
+};
+
 // Превращает врага в призрака: переносит из списка врагов в список призраков, меняет группу
 // столкновений и материал, убирает полоску здоровья. Тело остаётся тем же — со всей его скоростью
 // и вращением, поэтому призрак продолжает лететь после удара.
@@ -49,7 +55,7 @@ export const turnIntoCorpse = ({
   }
 
   world.getCollider(handle).setCollisionGroups(CORPSE_GROUPS);
-  enemy.cube.material = CORPSE_MATERIAL;
+  applyCorpseLook(enemy.cube);
   enemy.hpBar.group.removeFromParent();
   enemies.delete(handle);
   corpses.set(handle, { body: enemy.body, object: enemy.object, cube: enemy.cube, age: 0, size: enemy.kind.size });

@@ -175,7 +175,8 @@ const getBurstDirection = (): THREE.Vector3 => {
 // Читается в момент рождения и перекраски (refreshColor), поэтому смена цвета
 // в панели действует сразу. THREE.Color из хекс-строки хранит цвет в рабочем (линейном) пространстве —
 // ровно то, чего ждёт setColorAt у InstancedMesh.
-const getSparkColor = (isCrit: boolean): THREE.Color => {
+// Экспортируется для демо-сцены (src/demo-scene.ts): там цвет кучек искр считается тем же способом.
+export const getSparkColor = (isCrit: boolean): THREE.Color => {
   const color = new THREE.Color(isCrit ? config.SPARKS_CRIT_COLOR : config.SPARKS_COLOR);
 
   return isCrit ? color.multiplyScalar(config.SPARKS_CRIT_GLOW_MULTIPLIER) : color;

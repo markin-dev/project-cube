@@ -50,6 +50,20 @@ const CRIT_PROJECTILE_MATERIAL = new THREE.MeshLambertMaterial({
 // Оба материала пули — чтобы обновить цвет и свечение одним вызовом (см. refreshProjectileColor).
 const PROJECTILE_MATERIALS = [PROJECTILE_MATERIAL, CRIT_PROJECTILE_MATERIAL];
 
+// Видимый меш снаряда: сторона — PROJECTILE_SIZE, у крита — увеличенная в CRIT_PROJECTILE_SIZE_MULTIPLIER
+// раз (только меш: физический коллайдер считается от PROJECTILE_SIZE и не меняется, чтобы не править баланс).
+// Цвет и свечение — общие материалы (refreshProjectileColor), castShadow — тень (см. scene.ts).
+// Экспортируется для демо-сцены (src/demo-scene.ts): там стоят обычный и крит-снаряд.
+export const createProjectileMesh = (isCrit: boolean): THREE.Mesh => {
+  const size = config.PROJECTILE_SIZE * (isCrit ? config.CRIT_PROJECTILE_SIZE_MULTIPLIER : 1);
+  const mesh = new THREE.Mesh(PROJECTILE_GEOMETRY, isCrit ? CRIT_PROJECTILE_MATERIAL : PROJECTILE_MATERIAL);
+
+  mesh.scale.setScalar(size);
+  mesh.castShadow = true;
+
+  return mesh;
+};
+
 // Квадрат расстояния от объекта до центра арены по полу.
 // Для сравнения «кто ближе» корень не нужен: от него порядок не меняется, а считать дешевле.
 const getDistanceToCenterSquared = (entity: Entity): number => {
@@ -233,10 +247,6 @@ const fireOneProjectile = ({
   const isCrit = isCritRolled();
   const damage = applyCritToDamage(rollDamage(), isCrit);
 
-  // Видимый размер: крит-пуля крупнее в CRIT_PROJECTILE_SIZE_MULTIPLIER раз (только меш —
-  // физический коллайдер считается от size = PROJECTILE_SIZE и не меняется, чтобы не править баланс).
-  const visualSize = size * (isCrit ? config.CRIT_PROJECTILE_SIZE_MULTIPLIER : 1);
-
   if (direction.lengthSq() === 0) {
     return;
   }
@@ -270,13 +280,11 @@ const fireOneProjectile = ({
     body,
   );
 
-  const mesh = new THREE.Mesh(PROJECTILE_GEOMETRY, isCrit ? CRIT_PROJECTILE_MATERIAL : PROJECTILE_MATERIAL);
-  mesh.scale.setScalar(visualSize);
-  mesh.position.copy(body.translation());
-
   // Пуля отбрасывает тень на пол и врагов (см. scene.ts): она мала, но тень под ней читается
   // как след от выстрела.
-  mesh.castShadow = true;
+  const mesh = createProjectileMesh(isCrit);
+
+  mesh.position.copy(body.translation());
   scene.add(mesh);
   entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle, damage, isCrit });
 };
