@@ -24,10 +24,12 @@ import { createFloor, recompileMaterials, NEED_HALF_WIDTH } from './scene';
 import { getSparkColor } from './sparks';
 
 // Варианты для селекта «Сцена» в панели настроек (по образцу TONE_MAPPING_OPTIONS):
-// подпись в списке → значение в config.SCENE_MODE.
+// подпись в списке → значение в config.SCENE_MODE. Полигон — не отдельная сцена, а режим игры
+// на той же арене (см. polygon.ts и startPolygon в game.ts).
 export const SCENE_MODE_OPTIONS: Record<string, string> = {
   'Игра': 'game',
   'Демо (модельки)': 'demo',
+  'Полигон (сетка врагов)': 'polygon',
 };
 
 // Направление линейки модельек: горизонталь экрана в изометрии. Камера смотрит на арену с угла

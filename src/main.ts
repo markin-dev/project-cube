@@ -94,13 +94,39 @@ const applyLiveConfig = (): void => {
   // Демо-сцена: свой фон, свет и кучки искр + видимость HUD (скрыт в демо-режиме).
   demoScene.refresh();
   hud.setVisible(config.SCENE_MODE !== 'demo');
+  syncSimulation();
+};
+
+// Игра и полигон делят одну арену (см. polygon.ts): какую из них крутит игра, решает селект «Сцена».
+// Выбрали полигон, а на арене волны, — арена очищается и встаёт сетка; выбрали игру, а на арене
+// полигон, — игра начинается заново со стартовой волны. Демо ничего не перезапускает: что шло,
+// то и замирает до возврата.
+const syncSimulation = (): void => {
+  if (config.SCENE_MODE === 'polygon' && game.state.mode !== 'polygon') {
+    game.startPolygon();
+  }
+
+  if (config.SCENE_MODE === 'game' && game.state.mode !== 'waves') {
+    game.startGame();
+  }
 };
 
 // Панель настроек. onStartWave — ручной запуск волны из раздела «Волны (отладка)»: ссылку на игру
-// берём через стрелку, панель вызовет её уже после создания игры. sound — раздел «Звук»: выбор наборов.
+// берём через стрелку, панель вызовет её уже после создания игры. На полигоне волн нет — выбор волны
+// там ничего не делает. onRebuildPolygon — кнопка «Пересоздать сетку»: действует только на полигоне.
+// sound — раздел «Звук»: выбор наборов.
 const settingsPanel = createSettingsPanel({
   onChange: applyLiveConfig,
-  onStartWave: (waveNumber: number): void => game.startGame(waveNumber),
+  onStartWave: (waveNumber: number): void => {
+    if (config.SCENE_MODE !== 'polygon') {
+      game.startGame(waveNumber);
+    }
+  },
+  onRebuildPolygon: (): void => {
+    if (config.SCENE_MODE === 'polygon') {
+      game.startPolygon();
+    }
+  },
   sound,
 });
 
@@ -143,14 +169,21 @@ const isUiTarget = (target: EventTarget | null): boolean =>
 
 // После конца игры клик или пробел начинают её заново со стартовой волны.
 // В демо-режиме (витрина модельок) клики и пробел игру не перезапускают: сцена статична,
-// а перезапуск при возврате к игре был бы неожиданным (см. demo-scene.ts).
+// а перезапуск при возврате к игре был бы неожиданным (см. demo-scene.ts). На полигоне поражения
+// нет — игра всегда идёт, и клик ничего не перезапускает.
 const restartGame = (): void => {
   if (config.SCENE_MODE !== 'demo' && game.state.status !== 'playing') {
     game.startGame();
   }
 };
 
-game.startGame();
+// Старт — в той симуляции, что выбрана в сохранённых настройках: полигон или волны (в демо-режиме —
+// волны, они замрут до возврата к игре).
+if (config.SCENE_MODE === 'polygon') {
+  game.startPolygon();
+} else {
+  game.startGame();
+}
 
 // Pointer-события объединяют палец, мышь и стилус. Слушаем окно целиком,
 // потому что после конца игры canvas закрыт экраном с результатом.

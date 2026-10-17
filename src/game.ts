@@ -1,4 +1,5 @@
-// Игровая логика: состояние игры, волны и их группы, стрельба, столкновения и шаг симуляции.
+// Игровая логика: состояние игры, волны и их группы, полигон (статичная сетка врагов, см. polygon.ts),
+// стрельба, столкновения и шаг симуляции.
 // Ничего не знает про DOM, рендер и ввод — HUD, звук и цифры урона приходят параметрами createGame,
 // поэтому игру можно гонять в юнит-тестах на headless-Rapier (unit/game.test.ts).
 // Сцену, интерфейс и цикл кадров собирает точка входа main.ts.
@@ -10,6 +11,7 @@ import type { ShowDamageNumber } from './damage-numbers';
 import { damageEnemy, moveEnemies, spawnEnemy, type Enemies, type Enemy } from './enemies';
 import { removeAllEntities, removeEntity, removeFallenEntities } from './entity';
 import type { Hud } from './hud';
+import { getPolygonKindName, getPolygonPoints } from './polygon';
 import { findTargets, fireProjectiles, removeFarProjectiles, runFireTimer, type Projectiles } from './projectiles';
 import { buildWaveSchedule, countDueEvents, getWaveScale, type GroupSchedule } from './schedule';
 import type { Sound } from './sound';
@@ -21,6 +23,11 @@ import type { Wave } from './waves';
 // победы нет — цель игрока дойти как можно дальше.
 export type GameStatus = 'playing' | 'lost';
 
+// Что крутит игра на арене: waves — обычная игра с волнами (startGame); polygon — полигон
+// (startPolygon, см. polygon.ts): статичная сетка врагов, которые не идут к кубу, а убитая сетка
+// сразу сменяется следующей. Поражения на полигоне нет.
+export type GameMode = 'waves' | 'polygon';
+
 // Группа текущей волны во время игры: её расписание (см. schedule.ts), момент, когда она началась
 // (секунд от начала волны; undefined — ещё не началась), и сколько её врагов уже появилось.
 type ActiveGroup = GroupSchedule & {
@@ -29,9 +36,16 @@ type ActiveGroup = GroupSchedule & {
 };
 
 export type GameState = {
+  mode: GameMode;
+
   // Сквозной номер текущей волны (с 1) — его видит игрок. Составы волн берутся из списка по кругу:
   // волна N — это waves[(N − 1) mod waves.length], а сила растёт с номером (см. getWaveScale в schedule.ts).
+  // На полигоне — номер сетки: каждая сетка — та же «волна», только статичная.
   waveNumber: number;
+
+  // Сколько врагов встало в текущую сетку полигона (на арене может влезть меньше, чем просили).
+  // В режиме волн — 0.
+  gridSize: number;
 
   // Сила текущей волны: во сколько раз у её врагов больше здоровья и опыта, чем у их типов
   // в ENEMY_KINDS (1 — в обучающем круге, дальше растёт; см. getWaveScale в schedule.ts).
@@ -87,6 +101,10 @@ export type Game = {
   // (сквозной номер; по умолчанию — со стартовой).
   startGame: (waveNumber?: number) => void;
 
+  // Полигон вместо игры: арена очищается, встаёт первая сетка врагов (см. polygon.ts).
+  // Назад к волнам — startGame.
+  startPolygon: () => void;
+
   // Один шаг симуляции длиной delta секунд. После конца игры ничего не делает — всё замирает.
   update: (delta: number) => void;
 };
@@ -126,7 +144,9 @@ export const createGame = ({
 
   // Объект один на всю игру, меняем его поля. Настоящие стартовые значения выставляет startGame.
   const state: GameState = {
+    mode: 'waves',
     waveNumber: startWaveNumber,
+    gridSize: 0,
     strength: 1,
     level: 1,
     xp: 0,
@@ -150,6 +170,55 @@ export const createGame = ({
     }
 
     hud.setProgress({ level: state.level, xp: state.xp, needed: needForLevelUp(state.level) });
+  };
+
+  // ─── ПОЛИГОН ───────────────────────────────────────────────────────────────
+
+  // Номер сетки и сколько её врагов ещё живо — в HUD вместо волны и группы.
+  const showGridProgress = (): void => {
+    hud.setPolygon({ number: state.waveNumber, alive: enemies.size, total: state.gridSize });
+  };
+
+  // Ставит сетку полигона номер gridNumber: враги типа POLYGON_ENEMY_KIND в узлах сетки
+  // (getPolygonPoints), на полу — центр на половине стороны. Места не ищем: узлы не пересекаются
+  // ни друг с другом, ни с кубом. Сила 1 — здоровье и опыт как у типа.
+  const startGrid = (gridNumber: number): void => {
+    const kindName = getPolygonKindName();
+    const points = getPolygonPoints(kindName);
+    const height = config.ENEMY_KINDS[kindName].size / 2;
+
+    for (const { x, z } of points) {
+      spawnEnemy({
+        world,
+        scene,
+        entities: enemies,
+        position: { x, y: height, z },
+        kindName,
+        isPinned: config.POLYGON_PINNED,
+      });
+    }
+
+    state.waveNumber = gridNumber;
+    state.gridSize = points.length;
+    showGridProgress();
+  };
+
+  // Сетка убита — сразу встаёт следующая. Пустая сетка (ни один узел не влез на арену) не сменяется:
+  // иначе номер сетки рос бы каждый шаг. Её перестроит кнопка «Пересоздать сетку» после правки параметров.
+  const refillGrid = (): void => {
+    if (enemies.size === 0 && state.gridSize > 0) {
+      startGrid(state.waveNumber + 1);
+    }
+  };
+
+  // Враг убит — попаданием или выброской за арену: опыт за него, а на полигоне — ещё и счётчик
+  // живых врагов в HUD (враг к этому моменту уже переведён в призраки).
+  const countKill = (enemy: Enemy): void => {
+    addExperience(enemy.kind.xp);
+
+    if (state.mode === 'polygon') {
+      showGridProgress();
+    }
   };
 
   // ─── ВОЛНЫ ─────────────────────────────────────────────────────────────────
@@ -345,14 +414,15 @@ export const createGame = ({
 
       // Звук смерти — сразу за звуком попадания: пуля добила врага. Опыт — по типу врага.
       sound.playDeath();
-      addExperience(enemy.kind.xp);
+      countKill(enemy);
     }
   };
 
   // Разбираем столкновения, которые Rapier нашёл за последний шаг.
   // События приходят парами handle-ов коллайдеров в произвольном порядке, а нас интересуют две пары:
-  // «враг + снаряд» — попадание; «враг + игрок» — поражение. Остальные пары (враг с полом, враги между собой)
-  // события не создают: флаг событий есть только у игрока и снарядов.
+  // «враг + снаряд» — попадание; «враг + игрок» — поражение (только в режиме волн: полигон — тренировка,
+  // проигрыша там нет). Остальные пары (враг с полом, враги между собой) события не создают:
+  // флаг событий есть только у игрока и снарядов.
   const handleCollisions = (): void => {
     // Менять физический мир прямо во время обхода событий небезопасно: удалять тела, толкать их,
     // менять группы. Поэтому попадания сначала собираем, а применяем после обхода.
@@ -372,7 +442,9 @@ export const createGame = ({
       }
 
       if (otherHandle === playerHandle) {
-        loseGame();
+        if (state.mode === 'waves') {
+          loseGame();
+        }
 
         return;
       }
@@ -396,9 +468,18 @@ export const createGame = ({
       return;
     }
 
-    spawnScheduledEnemies(delta);
+    // На полигоне враги стоят сеткой: расписания появлений нет, к кубу они не идут.
+    const isPolygon = state.mode === 'polygon';
+
+    if (!isPolygon) {
+      spawnScheduledEnemies(delta);
+    }
+
     state.fireTimer = runFireTimer({ timer: state.fireTimer, delta, fireVolley });
-    moveEnemies({ world, enemies, delta });
+
+    if (!isPolygon) {
+      moveEnemies({ world, enemies, delta });
+    }
 
     // Продвигаем симуляцию на delta секунд: двигаем тела, разрешаем столкновения
     // и складываем события о них в eventQueue.
@@ -418,7 +499,7 @@ export const createGame = ({
 
     // Враги, покинувшие арену, погибают сразу — это убийство, за него тоже начисляется опыт.
     for (const enemy of turnOutOfArenaIntoCorpses({ world, enemies, corpses })) {
-      addExperience(enemy.kind.xp);
+      countKill(enemy);
     }
 
     if (corpses.size > corpsesBefore) {
@@ -432,10 +513,17 @@ export const createGame = ({
 
     // Искры живут в игровом времени: на паузе замирают, при ускорении — летят быстрее.
     sparks.update(delta);
-    advanceWave();
+
+    if (isPolygon) {
+      refillGrid();
+    } else {
+      advanceWave();
+    }
   };
 
-  const startGame = (waveNumber: number = startWaveNumber): void => {
+  // Общее начало игры и полигона: арена пустеет (враги, снаряды, призраки, искры), прокачка
+  // и отсчёт до залпа обнуляются, экран поражения прячется.
+  const resetArena = (): void => {
     removeAllEntities({ world, scene, entities: enemies });
     removeAllEntities({ world, scene, entities: projectiles });
     removeAllEntities({ world, scene, entities: corpses });
@@ -446,8 +534,24 @@ export const createGame = ({
     state.xp = 0;
     hud.hideEndScreen();
     hud.setProgress({ level: 1, xp: 0, needed: needForLevelUp(1) });
+  };
+
+  const startGame = (waveNumber: number = startWaveNumber): void => {
+    resetArena();
+    state.mode = 'waves';
+    state.gridSize = 0;
     startWave(waveNumber);
   };
 
-  return { state, enemies, projectiles, corpses, startGame, update };
+  // Полигону волны не нужны: групп нет, сила 1, время волны не идёт в расчёт.
+  const startPolygon = (): void => {
+    resetArena();
+    state.mode = 'polygon';
+    state.strength = 1;
+    state.waveTime = 0;
+    state.groups = [];
+    startGrid(1);
+  };
+
+  return { state, enemies, projectiles, corpses, startGame, startPolygon, update };
 };

@@ -43,3 +43,26 @@ export const getDamageNumbers = (isOnlyCrit: boolean = false): NodeListOf<Elemen
 // Кнопка с текстом text (переключатель скорости, звук).
 export const getButton = (text: string): HTMLButtonElement | undefined =>
   [...document.querySelectorAll('button')].find((button) => button.textContent === text);
+
+// Селект «Что показывать» раздела «Сцена» — тот, у которого есть вариант «Демо (модельки)». Ищем
+// по тексту варианта — так тесты не зависят от порядка разделов в панели.
+export const getSceneSelect = (): HTMLSelectElement => {
+  const select = [...document.querySelectorAll('.lil-gui select')].find((element): boolean =>
+    element.textContent?.includes('Демо (модельки)') ?? false,
+  );
+
+  if (!(select instanceof HTMLSelectElement)) {
+    throw new Error('селект «Сцена» не найден');
+  }
+
+  return select;
+};
+
+// Выбирает режим сцены по индексу варианта: 0 — игра, 1 — демо, 2 — полигон (см. SCENE_MODE_OPTIONS).
+// Панель применяет выбор сразу — так же, как при клике пользователя.
+export const setSceneMode = (index: number): void => {
+  const select = getSceneSelect();
+
+  select.selectedIndex = index;
+  select.dispatchEvent(new Event('change'));
+};

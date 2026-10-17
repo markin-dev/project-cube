@@ -103,6 +103,7 @@ export const createEnemyCube = (kindName: EnemyKindName): THREE.Mesh => {
 // обычно враг стоит на полу (центр на половине роста), но в тесноте может появиться ярусом выше и упасть.
 // strength — сила волны (см. getWaveScale в schedule.ts): во сколько раз у врага больше здоровья и опыта,
 // чем у его типа в ENEMY_KINDS. Округляем до целого; здоровье — не меньше 1: полоска здоровья делит на максимум.
+// isPinned — закреплённый враг полигона (см. POLYGON_PINNED в config.ts): неподвижное тело, пули его не толкают.
 export const spawnEnemy = ({
   world,
   scene,
@@ -110,7 +111,13 @@ export const spawnEnemy = ({
   position,
   kindName,
   strength = 1,
-}: EntityContext<Enemy> & { position: THREE.Vector3Like; kindName: EnemyKindName; strength?: number }): Enemy => {
+  isPinned = false,
+}: EntityContext<Enemy> & {
+  position: THREE.Vector3Like;
+  kindName: EnemyKindName;
+  strength?: number;
+  isPinned?: boolean;
+}): Enemy => {
   const { x, y, z } = position;
   const baseKind = config.ENEMY_KINDS[kindName];
 
@@ -126,8 +133,11 @@ export const spawnEnemy = ({
   // и толкает других врагов. Затухание гасит полёт и вращение, как сопротивление воздуха.
   // CCD (непрерывное определение столкновений) не даёт быстро летящему врагу проскочить сквозь пол
   // между двумя шагами симуляции.
+  // Закреплённый враг — fixed, как куб игрока: физика его не двигает, пуля отскакивает от него,
+  // но попадание всё равно засчитывается (события столкновений с неподвижным телом приходят так же).
+  // Затухание и CCD неподвижному телу не мешают — просто не нужны.
   const body = world.createRigidBody(
-    RAPIER.RigidBodyDesc.dynamic()
+    (isPinned ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic())
       .setTranslation(x, y, z)
       .setLinearDamping(config.ENEMY_LINEAR_DAMPING)
       .setAngularDamping(config.ENEMY_ANGULAR_DAMPING)

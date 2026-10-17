@@ -20,7 +20,8 @@ export const createTestWorld = async (): Promise<TestWorld> => {
   return { world, eventQueue, scene: new THREE.Scene() };
 };
 
-// Враг типа kindName с центром в (x, y, z), добавленный в enemies; strength — сила волны (см. spawnEnemy).
+// Враг типа kindName с центром в (x, y, z), добавленный в enemies; strength — сила волны,
+// isPinned — закреплённый враг полигона (см. spawnEnemy).
 export const addTestEnemy = ({
   world,
   scene,
@@ -30,6 +31,7 @@ export const addTestEnemy = ({
   z,
   kindName = 'normal',
   strength = 1,
+  isPinned = false,
 }: Pick<TestWorld, 'world' | 'scene'> & {
   enemies: Enemies;
   x: number;
@@ -37,7 +39,8 @@ export const addTestEnemy = ({
   z: number;
   kindName?: EnemyKindName;
   strength?: number;
-}): Enemy => spawnEnemy({ world, scene, entities: enemies, position: { x, y, z }, kindName, strength });
+  isPinned?: boolean;
+}): Enemy => spawnEnemy({ world, scene, entities: enemies, position: { x, y, z }, kindName, strength, isPinned });
 
 // Голое динамическое тело в точке (x, y, z) — для проверок, которым нужна только позиция.
 export const createTestBody = ({ world, x, y, z }: { world: World; x: number; y: number; z: number }): RigidBody =>

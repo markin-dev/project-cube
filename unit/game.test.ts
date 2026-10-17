@@ -1,11 +1,12 @@
 // Юнит-тесты игровой логики (src/game.ts) на headless-Rapier: волны и их круги, группы, лимит появлений,
-// стрельба, попадания и поражение. HUD, звук и цифры урона — заглушки vi.fn.
+// стрельба, попадания и поражение, полигон. HUD, звук и цифры урона — заглушки vi.fn.
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { config } from '@/config';
 import type { Enemies } from '@/enemies';
 import { createGame, needForLevelUp, type Game } from '@/game';
 import type { Hud } from '@/hud';
 import { createPlayer } from '@/player';
+import { getPolygonPoints } from '@/polygon';
 import { createSparks } from '@/sparks';
 import type { Wave } from '@/waves';
 import { createTestWorld } from './fixtures';
@@ -39,6 +40,7 @@ const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> =
   const hud = {
     setWave: vi.fn(),
     setGroup: vi.fn(),
+    setPolygon: vi.fn(),
     setProgress: vi.fn(),
     showEndScreen: vi.fn(),
     hideEndScreen: vi.fn(),
@@ -92,6 +94,31 @@ const clearWave = (game: Game): void => {
   pushOutOfArena(game.enemies);
   runSteps(game, 1);
 };
+
+// Игра, сразу переведённая на полигон (сетка из POLYGON_ENEMY_COUNT врагов уже стоит).
+const createPolygonGame = async (): Promise<TestGame> => {
+  const testGame = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+  testGame.game.startPolygon();
+
+  return testGame;
+};
+
+// Насколько каждый живой враг сдвинулся по полу от точки (x, z) из списка points (по порядку).
+const getShifts = (game: Game, points: Array<{ x: number; z: number }>): number[] =>
+  [...game.enemies.values()].map(({ body }, index) => {
+    const { x, z } = body.translation();
+
+    return Math.hypot(x - points[index].x, z - points[index].z);
+  });
+
+// Точки, где сейчас стоят живые враги, — снимок, чтобы потом сравнить с getShifts.
+const getEnemyPoints = (game: Game): Array<{ x: number; z: number }> =>
+  [...game.enemies.values()].map(({ body }) => {
+    const { x, z } = body.translation();
+
+    return { x, z };
+  });
 
 afterEach(() => vi.clearAllMocks());
 
@@ -307,5 +334,152 @@ describe('startGame', () => {
     game.startGame(12);
 
     expect(game.state.waveNumber).toBe(12);
+  });
+});
+
+describe('полигон', () => {
+  it('Должен очистить арену от волны и построить сетку из POLYGON_ENEMY_COUNT врагов', async () => {
+    config.POLYGON_ENEMY_COUNT = 10;
+
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    runSteps(game, 1);
+    game.startPolygon();
+
+    expect(game.enemies.size).toBe(10);
+  });
+
+  it('Должен поставить врагов полигона в узлы сетки', async () => {
+    config.POLYGON_ENEMY_COUNT = 10;
+
+    const { game } = await createPolygonGame();
+
+    expect(Math.max(...getShifts(game, getPolygonPoints('normal')))).toBeLessThan(1e-4);
+  });
+
+  it('Должен оставить врагов полигона на месте — к кубу они не идут', async () => {
+    // Пули еле ползут и за 2 секунды ни до кого не долетят — двигать врагов может только их собственный ход.
+    config.POLYGON_ENEMY_COUNT = 10;
+    config.PROJECTILE_SPEED = 0.5;
+
+    const { game } = await createPolygonGame();
+    const points = getEnemyPoints(game);
+
+    runSteps(game, 120);
+
+    expect(Math.max(...getShifts(game, points))).toBeLessThan(1e-3);
+  });
+
+  describe('закреплённые враги', () => {
+    it('Должен сделать врагов неподвижными телами при POLYGON_PINNED', async () => {
+      config.POLYGON_PINNED = true;
+
+      const { game } = await createPolygonGame();
+
+      expect([...game.enemies.values()].every(({ body }) => body.isFixed())).toBe(true);
+    });
+
+    it('Должен наносить урон закреплённым врагам', async () => {
+      config.POLYGON_PINNED = true;
+      config.POLYGON_ENEMY_COUNT = 1;
+
+      const { game, showDamageNumber } = await createPolygonGame();
+
+      runUntil({ game, isDone: () => showDamageNumber.mock.calls.length > 0, maxSeconds: 3 });
+
+      expect(showDamageNumber).toHaveBeenCalled();
+    });
+
+    it('Должен оставить закреплённого врага на месте после попадания', async () => {
+      config.POLYGON_PINNED = true;
+      config.POLYGON_ENEMY_COUNT = 1;
+
+      const { game, showDamageNumber } = await createPolygonGame();
+      const points = getEnemyPoints(game);
+
+      runUntil({ game, isDone: () => showDamageNumber.mock.calls.length > 0, maxSeconds: 3 });
+
+      expect(Math.max(...getShifts(game, points))).toBeLessThan(1e-6);
+    });
+  });
+
+  describe('смена сеток', () => {
+    it('Должен построить следующую сетку, когда прежняя убита', async () => {
+      config.POLYGON_ENEMY_COUNT = 3;
+
+      const { game } = await createPolygonGame();
+
+      pushOutOfArena(game.enemies);
+      runSteps(game, 1);
+
+      expect(game.state.waveNumber).toBe(2);
+    });
+
+    it('Должен оставить пустую сетку без смены номера', async () => {
+      // Отступ больше половины арены — ни одного узла: сетка пуста, но номер не растёт каждый шаг.
+      config.ARENA_INSET = 20;
+
+      const { game } = await createPolygonGame();
+
+      runSteps(game, 5);
+
+      expect(game.state.waveNumber).toBe(1);
+    });
+  });
+
+  describe('HUD', () => {
+    it('Должен показать номер сетки и число её врагов', async () => {
+      config.POLYGON_ENEMY_COUNT = 4;
+
+      const { hud } = await createPolygonGame();
+
+      expect(hud.setPolygon).toHaveBeenLastCalledWith({ number: 1, alive: 4, total: 4 });
+    });
+
+    it('Должен уменьшить число живых врагов после убийства', async () => {
+      config.POLYGON_ENEMY_COUNT = 4;
+
+      const { game, hud } = await createPolygonGame();
+      const [firstEnemy] = game.enemies.values();
+
+      firstEnemy.body.setTranslation({ x: 100, y: 1, z: 0 }, true);
+      runSteps(game, 1);
+
+      expect(hud.setPolygon).toHaveBeenLastCalledWith({ number: 1, alive: 3, total: 4 });
+    });
+  });
+
+  it('Должен начислить опыт за врага полигона', async () => {
+    config.POLYGON_ENEMY_KIND = 'tiny';
+    config.POLYGON_ENEMY_COUNT = 1;
+
+    const { game } = await createPolygonGame();
+
+    pushOutOfArena(game.enemies);
+    runSteps(game, 1);
+
+    expect(game.state.xp).toBe(config.ENEMY_KINDS.tiny.xp);
+  });
+
+  it('Должен продолжить игру, когда враг полигона коснулся куба', async () => {
+    config.POLYGON_ENEMY_COUNT = 1;
+
+    const { game } = await createPolygonGame();
+
+    for (const { body } of game.enemies.values()) {
+      body.setTranslation({ x: 0.8, y: 0.4, z: 0 }, true);
+    }
+
+    runSteps(game, 30);
+
+    expect(game.state.status).toBe('playing');
+  });
+
+  it('Должен вернуться к волнам по startGame', async () => {
+    const { game } = await createPolygonGame();
+
+    game.startGame();
+
+    expect(game.state.mode).toBe('waves');
   });
 });

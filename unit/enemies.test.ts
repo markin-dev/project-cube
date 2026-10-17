@@ -165,6 +165,15 @@ describe('spawnEnemy', () => {
 
     expect(enemy.hp).toBe(1);
   });
+
+  it.each([
+    [true, true],
+    [false, false],
+  ])('Должен при isPinned = %s создать неподвижное тело: %s', (isPinned, expected) => {
+    const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 5, y: 0.4, z: 0, isPinned });
+
+    expect(enemy.body.isFixed()).toBe(expected);
+  });
 });
 
 describe('damageEnemy', () => {

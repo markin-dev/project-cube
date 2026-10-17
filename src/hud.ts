@@ -19,6 +19,13 @@ type EndScreenText = {
   hint: string;
 };
 
+// Полигон (см. polygon.ts): номер сетки и сколько её врагов ещё живо из скольких.
+type PolygonInfo = {
+  number: number;
+  alive: number;
+  total: number;
+};
+
 // Прогресс прокачки куба: уровень и опыт на нём (xp из needed — заполнение полосы).
 type ProgressInfo = {
   level: number;
@@ -29,6 +36,10 @@ type ProgressInfo = {
 export type Hud = {
   setWave: (wave: WaveInfo) => void;
   setGroup: (group: GroupInfo) => void;
+
+  // На полигоне вместо волны и группы — номер сетки и счётчик живых врагов (те же две строки).
+  setPolygon: (polygon: PolygonInfo) => void;
+
   setProgress: (progress: ProgressInfo) => void;
   showEndScreen: (text: EndScreenText) => void;
   hideEndScreen: () => void;
@@ -39,7 +50,7 @@ export type Hud = {
 };
 
 export const createHud = (): Hud => {
-  // Номер волны и под ним счётчик групп — в левом верхнем углу.
+  // Номер волны и под ним счётчик групп — в левом верхнем углу (на полигоне — номер сетки и живые враги).
   // position: fixed — элемент привязан к окну и лежит поверх canvas.
   // pointer-events: none — касания проходят сквозь надпись к тому, что под ней.
   const waveLabel = document.createElement('div');
@@ -148,6 +159,11 @@ export const createHud = (): Hud => {
     groupLine.textContent = `Группа ${number} / ${total}`;
   };
 
+  const setPolygon = ({ number, alive, total }: PolygonInfo): void => {
+    waveLine.textContent = `Полигон · сетка ${number}`;
+    groupLine.textContent = `Врагов ${alive} / ${total}`;
+  };
+
   const setProgress = ({ level, xp, needed }: ProgressInfo): void => {
     levelLine.textContent = `Уровень ${level}`;
     xpLine.textContent = `${xp} / ${needed}`;
@@ -176,5 +192,5 @@ export const createHud = (): Hud => {
     applyEndScreen();
   };
 
-  return { setWave, setGroup, setProgress, showEndScreen, hideEndScreen, setVisible };
+  return { setWave, setGroup, setPolygon, setProgress, showEndScreen, hideEndScreen, setVisible };
 };

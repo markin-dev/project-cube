@@ -6,6 +6,7 @@
 //   без пометки     — сразу (значение читается каждый кадр или в момент выстрела, цвета перекрашиваются на ходу);
 //   «· новые»       — для врагов, которые появятся после изменения (уже живые остаются как были);
 //   «· волна»       — со следующей волны (расписание волны строится при её старте);
+//   «· сетка»       — со следующей сетки полигона (сетка строится целиком при старте, см. polygon.ts);
 //   «· перезагрузка» — после перезагрузки страницы (пол, камера и игрок создаются один раз).
 // Изменения сохраняются в браузере (см. config-storage.ts) и переживают перезагрузку.
 // Кроме параметров конфига есть раздел «Волны (отладка)» — ручной запуск волны: это действие,
@@ -35,12 +36,13 @@ import { TONE_MAPPING_OPTIONS } from './scene';
 import { SOUND_SETS, type Sound, type SoundType } from './sound';
 import { WAVES } from './waves';
 
-type ApplyMode = 'now' | 'newEnemies' | 'nextWave' | 'reload';
+type ApplyMode = 'now' | 'newEnemies' | 'nextWave' | 'nextGrid' | 'reload';
 
 const APPLY_SUFFIXES: Record<ApplyMode, string> = {
   now: '',
   newEnemies: ' · новые',
   nextWave: ' · волна',
+  nextGrid: ' · сетка',
   reload: ' · перезагрузка',
 };
 
@@ -69,6 +71,7 @@ type SettingKey = Exclude<keyof Config, 'ENEMY_KINDS'>;
 type BooleanSetting = {
   key: BooleanKey;
   label: string;
+  apply?: ApplyMode;
 };
 
 // Селект: поле с готовым списком значений — для того, что нельзя описать диапазоном, как у ползунка:
@@ -79,6 +82,7 @@ type SelectSetting = {
 
   // Подпись варианта в списке → значение, которое запишется в конфиг.
   options: Record<string, string | number>;
+  apply?: ApplyMode;
 };
 
 type Section = {
@@ -91,7 +95,23 @@ type Section = {
 
   // Добавить в раздел вложенные папки с типами врагов.
   isWithEnemyKinds?: boolean;
+
+  // Добавить в конец раздела кнопку «Пересоздать сетку» полигона (см. createSettingsPanel).
+  isWithPolygonRebuild?: boolean;
 };
+
+// Названия типов врагов для папок панели и селекта типа на полигоне. Record с ключом EnemyKindName:
+// TypeScript проверит, что названы все типы из ENEMY_KINDS.
+const KIND_TITLES: Record<EnemyKindName, string> = {
+  tiny: 'Крошка',
+  small: 'Мелкий',
+  normal: 'Обычный',
+  big: 'Крупный',
+  brute: 'Громила',
+};
+
+// Варианты селекта «Тип врагов» полигона: название типа → имя типа в конфиге.
+const POLYGON_KIND_OPTIONS = Object.fromEntries(ENEMY_KIND_NAMES.map((name) => [KIND_TITLES[name], name]));
 
 export const SECTIONS: Section[] = [
   {
@@ -100,6 +120,20 @@ export const SECTIONS: Section[] = [
     title: 'Сцена',
     settings: [],
     selects: [{ key: 'SCENE_MODE', label: 'Что показывать', options: SCENE_MODE_OPTIONS }],
+  },
+  {
+    // Полигон (SCENE_MODE = 'polygon', см. polygon.ts) — сразу за выбором сцены: параметры сетки
+    // нужны вместе с ним. Сетка строится целиком, поэтому всё применяется со следующей сетки
+    // или кнопкой «Пересоздать сетку».
+    title: 'Полигон',
+    settings: [
+      { key: 'POLYGON_ENEMY_COUNT', label: 'Врагов в сетке', min: 1, max: 1000, step: 1, apply: 'nextGrid' },
+      { key: 'POLYGON_ENEMY_GAP', label: 'Расстояние между врагами, м', min: 0, max: 5, step: 0.05, apply: 'nextGrid' },
+      { key: 'POLYGON_CLEAR_RADIUS', label: 'Пустой круг у куба, м', min: 0, max: 14, step: 0.5, apply: 'nextGrid' },
+    ],
+    booleans: [{ key: 'POLYGON_PINNED', label: 'Закрепить врагов', apply: 'nextGrid' }],
+    selects: [{ key: 'POLYGON_ENEMY_KIND', label: 'Тип врагов', options: POLYGON_KIND_OPTIONS, apply: 'nextGrid' }],
+    isWithPolygonRebuild: true,
   },
   {
     title: 'Арена и волны',
@@ -274,16 +308,6 @@ export const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
   { key: 'HEMISPHERE_GROUND_COLOR', label: 'Свет: земля' },
 ];
 
-// Названия типов врагов для папок панели. Record с ключом EnemyKindName: TypeScript проверит,
-// что названы все типы из ENEMY_KINDS.
-const KIND_TITLES: Record<EnemyKindName, string> = {
-  tiny: 'Крошка',
-  small: 'Мелкий',
-  normal: 'Обычный',
-  big: 'Крупный',
-  brute: 'Громила',
-};
-
 const PANEL_TITLE = 'Настройки';
 const PANEL_WIDTH = 340;
 
@@ -293,7 +317,7 @@ const COPIED_LABEL_DURATION = 1500;
 
 const LEGEND = `
   Без пометки — сразу. «· новые» — для новых врагов, «· волна» — со следующей волны,
-  «· перезагрузка» — после перезагрузки страницы. Изменения сохраняются в этом браузере;
+  «· сетка» — со следующей сетки полигона, «· перезагрузка» — после перезагрузки страницы. Изменения сохраняются в этом браузере;
   перенести их в код — «${COPY_LABEL}» и вставить строки в src/config.ts.
 `;
 
@@ -441,14 +465,17 @@ const addSoundSection = (gui: GUI, sound: Sound): void => {
 // Создаёт панель в правом верхнем углу. Свёрнута: видна только шапка, по клику раскрывается.
 // onChange вызывается при каждом изменении — там игра применяет то, что не читается само (цвета, гравитация).
 // onStartWave(waveNumber) — запустить волну со сквозным номером waveNumber вручную (отладка, см. addWavePicker).
+// onRebuildPolygon — кнопка «Пересоздать сетку» раздела «Полигон»: построить сетку заново по текущим параметрам.
 // sound — звук игры: раздел «Звук» читает и меняет его наборы (см. addSoundSection).
 export const createSettingsPanel = ({
   onChange,
   onStartWave,
+  onRebuildPolygon,
   sound,
 }: {
   onChange: () => void;
   onStartWave: (waveNumber: number) => void;
+  onRebuildPolygon: () => void;
   sound: Sound;
 }): SettingsPanel => {
   // closeFolders — все разделы изначально свёрнуты, чтобы панель не занимала пол-экрана.
@@ -472,7 +499,7 @@ export const createSettingsPanel = ({
   // Сначала раздел отладки — он нужен чаще всего, чтобы не листать длинный список параметров.
   const setCurrentWave = addWavePicker(gui, onStartWave);
 
-  for (const { title, settings, booleans = [], selects = [], isWithEnemyKinds } of SECTIONS) {
+  for (const { title, settings, booleans = [], selects = [], isWithEnemyKinds, isWithPolygonRebuild } of SECTIONS) {
     const folder = gui.addFolder(title);
 
     for (const { key, label, min, max, step, apply = 'now' } of settings) {
@@ -481,16 +508,22 @@ export const createSettingsPanel = ({
 
     // Чекбоксы (поле true/false) и селекты (готовый список значений) — как и ползунки, меняют
     // конфиг напрямую, поэтому действуют сразу и сохраняются в браузере.
-    for (const { key, label } of booleans) {
-      folder.add(config, key).name(label);
+    for (const { key, label, apply = 'now' } of booleans) {
+      folder.add(config, key).name(`${label}${APPLY_SUFFIXES[apply]}`);
     }
 
-    for (const { key, label, options } of selects) {
-      folder.add(config, key, options).name(label);
+    for (const { key, label, options, apply = 'now' } of selects) {
+      folder.add(config, key, options).name(`${label}${APPLY_SUFFIXES[apply]}`);
     }
 
     if (isWithEnemyKinds) {
       addEnemyKinds(folder.addFolder('Типы врагов'));
+    }
+
+    // Кнопка — действие, а не настройка (как «Перезапустить волну»): в конфиг не пишет и в «изменено: N»
+    // не считается.
+    if (isWithPolygonRebuild) {
+      folder.add({ rebuild: onRebuildPolygon }, 'rebuild').name('Пересоздать сетку');
     }
   }
 

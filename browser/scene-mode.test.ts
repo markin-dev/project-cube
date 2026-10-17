@@ -1,9 +1,8 @@
 // E2E переключения между сценами (SCENE_MODE, см. demo-scene.ts): в демо-режиме игра замирает —
-// позиции врагов не меняются, а при возврате к игре движение продолжается. Селект «Сцена» ищем
-// по тексту варианта — так тест не зависит от порядка секций в панели.
+// позиции врагов не меняются, а при возврате к игре движение продолжается.
 import { expect, it } from 'vitest';
 import '@/main';
-import { getEnemiesCount, getGame, sleep, waitUntil } from './helpers';
+import { getEnemiesCount, getGame, getSceneSelect, setSceneMode, sleep, waitUntil } from './helpers';
 
 // Позиции живых врагов — снимок, чтобы сравнить «до» и «после».
 const getEnemyPositions = (): number[][] =>
@@ -12,27 +11,6 @@ const getEnemyPositions = (): number[][] =>
 
     return [x, y, z];
   });
-
-// Селект «Что показывать» — тот, у которого есть вариант «Демо (модельки)».
-const getSceneSelect = (): HTMLSelectElement => {
-  const select = [...document.querySelectorAll('.lil-gui select')].find((element): boolean =>
-    element.textContent?.includes('Демо (модельки)') ?? false,
-  );
-
-  if (!(select instanceof HTMLSelectElement)) {
-    throw new Error('селект «Сцена» не найден');
-  }
-
-  return select;
-};
-
-// Выбирает режим сцены по индексу варианта: 0 — игра, 1 — демо (см. SCENE_MODE_OPTIONS).
-const setSceneMode = (index: number): void => {
-  const select = getSceneSelect();
-
-  select.selectedIndex = index;
-  select.dispatchEvent(new Event('change'));
-};
 
 it('Должен заморозить игру в демо-режиме и продолжить её при возврате', async () => {
   getSceneSelect();
