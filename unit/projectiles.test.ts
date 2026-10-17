@@ -1,11 +1,15 @@
 // Юнит-тесты снарядов (src/projectiles.ts): урон и криты, выбор целей, упреждение прицела,
-// отсчёт до залпа, выстрел и уборка промахов. Враги и снаряды — настоящие объекты на headless-Rapier.
+// отсчёт до залпа, выстрел, отскок и уборка промахов. Враги и снаряды — настоящие объекты на headless-Rapier.
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { config, MIN_FIRE_INTERVAL } from '@/config';
 import type { Enemies, Enemy } from '@/enemies';
+import RAPIER from '@dimforge/rapier3d-compat';
 import {
   applyCritToDamage,
+  bounceProjectile,
+  createProjectileHooks,
+  findBounceTarget,
   findTargets,
   fireProjectiles,
   isCritRolled,
@@ -61,6 +65,43 @@ const getGlowIntensity = (projectile: Projectile): number => {
 
   return object.material.emissiveIntensity;
 };
+
+// Два врага и снаряд, выпущенный в первого, с bounces отскоками — для bounceProjectile.
+type BounceCase = {
+  enemies: Enemies;
+  first: Enemy;
+  second: Enemy;
+  projectile: Projectile;
+};
+
+const createBounceCase = (bounces: number): BounceCase => {
+  config.PROJECTILE_BOUNCES = bounces;
+
+  const enemies: Enemies = new Map();
+  const first = addTestEnemy({ world, scene, enemies, x: 5, y: 0.4, z: 0 });
+  const second = addTestEnemy({ world, scene, enemies, x: 5, y: 0.4, z: 3 });
+  const [projectile] = fireAt(first).values();
+
+  return { enemies, first, second, projectile };
+};
+
+// Хуки шага физики для одного снаряда (handle PROJECTILE_HANDLE), который пролетает сквозь врага
+// PASS_THROUGH_HANDLE; OTHER_HANDLE — любой другой враг.
+const PROJECTILE_HANDLE = 1;
+const PASS_THROUGH_HANDLE = 2;
+const OTHER_HANDLE = 3;
+
+const createHooks = (): ReturnType<typeof createProjectileHooks> => {
+  const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 5, y: 0.4, z: 0 });
+  const [projectile] = fireAt(enemy).values();
+
+  return createProjectileHooks(
+    new Map([[PROJECTILE_HANDLE, { ...projectile, passThroughHandle: PASS_THROUGH_HANDLE }]]),
+  );
+};
+
+// Точка, откуда ищем цель отскока, — центр врага в (5, пол, 0).
+const BOUNCE_FROM = { x: 5, y: 0.4, z: 0 };
 
 afterEach(() => vi.clearAllMocks());
 
@@ -266,6 +307,15 @@ describe('fireProjectiles', () => {
     expect(projectile.body.linvel().x).toBeGreaterThan(14.5);
   });
 
+  it('Должен дать снаряду PROJECTILE_BOUNCES отскоков', () => {
+    config.PROJECTILE_BOUNCES = 3;
+
+    const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 10, y: 0.4, z: 0 });
+    const [projectile] = fireAt(enemy).values();
+
+    expect(projectile.bouncesLeft).toBe(3);
+  });
+
   it('Должен утяжелять крит-снаряд в CRIT_MASS_MULTIPLIER раз', () => {
     config.CRIT_CHANCE = 1;
 
@@ -293,6 +343,69 @@ describe('fireProjectiles', () => {
       config.PROJECTILE_GLOW,
       config.PROJECTILE_GLOW * config.CRIT_PROJECTILE_GLOW_MULTIPLIER,
     ]);
+  });
+});
+
+describe('findBounceTarget', () => {
+  it('Должен выбрать ближайшего к точке врага, кроме исключённого', () => {
+    const enemies: Enemies = new Map();
+    const excluded = addTestEnemy({ world, scene, enemies, x: 5, y: 0.4, z: 0 });
+    const near = addTestEnemy({ world, scene, enemies, x: 7, y: 0.4, z: 0 });
+
+    addTestEnemy({ world, scene, enemies, x: 9, y: 0.4, z: 0 });
+
+    const target = findBounceTarget({ enemies, from: BOUNCE_FROM, excludedHandle: getHandle(excluded) });
+
+    expect(target?.handle).toBe(getHandle(near));
+  });
+
+  it('Должен не найти цель, если кроме исключённого врагов нет', () => {
+    const enemies: Enemies = new Map();
+    const excluded = addTestEnemy({ world, scene, enemies, x: 5, y: 0.4, z: 0 });
+
+    expect(findBounceTarget({ enemies, from: BOUNCE_FROM, excludedHandle: getHandle(excluded) })).toBeUndefined();
+  });
+});
+
+describe('bounceProjectile', () => {
+  it('Должен перенацелить снаряд в следующего врага', () => {
+    const { enemies, first, second, projectile } = createBounceCase(1);
+
+    bounceProjectile({ world, projectile, hitHandle: getHandle(first), enemies });
+
+    expect(projectile.targetHandle).toBe(getHandle(second));
+  });
+
+  it('Должен пропускать сквозь себя только что задетого врага', () => {
+    const { enemies, first, projectile } = createBounceCase(1);
+
+    bounceProjectile({ world, projectile, hitHandle: getHandle(first), enemies });
+
+    expect(projectile.passThroughHandle).toBe(getHandle(first));
+  });
+
+  it('Должен потратить один отскок', () => {
+    const { enemies, first, projectile } = createBounceCase(2);
+
+    bounceProjectile({ world, projectile, hitHandle: getHandle(first), enemies });
+
+    expect(projectile.bouncesLeft).toBe(1);
+  });
+
+  it('Должен отказаться от отскока, когда отскоков не осталось', () => {
+    const { enemies, first, projectile } = createBounceCase(0);
+
+    expect(bounceProjectile({ world, projectile, hitHandle: getHandle(first), enemies })).toBe(false);
+  });
+});
+
+describe('createProjectileHooks', () => {
+  it.each([
+    ['снаряд + задетый враг', PROJECTILE_HANDLE, PASS_THROUGH_HANDLE, null],
+    ['задетый враг + снаряд', PASS_THROUGH_HANDLE, PROJECTILE_HANDLE, null],
+    ['снаряд + другой враг', PROJECTILE_HANDLE, OTHER_HANDLE, RAPIER.SolverFlags.COMPUTE_IMPULSE],
+  ])('Должен для пары «%s» вернуть %s', (_, collider1, collider2, expected) => {
+    expect(createHooks().filterContactPair(collider1, collider2, 0, 0)).toBe(expected);
   });
 });
 

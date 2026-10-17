@@ -12,7 +12,15 @@ import { damageEnemy, moveEnemies, spawnEnemy, type Enemies, type Enemy } from '
 import { removeAllEntities, removeEntity, removeFallenEntities } from './entity';
 import type { Hud } from './hud';
 import { getPolygonKindName, getPolygonPoints } from './polygon';
-import { findTargets, fireProjectiles, removeFarProjectiles, runFireTimer, type Projectiles } from './projectiles';
+import {
+  bounceProjectile,
+  createProjectileHooks,
+  findTargets,
+  fireProjectiles,
+  removeFarProjectiles,
+  runFireTimer,
+  type Projectiles,
+} from './projectiles';
 import { buildWaveSchedule, countDueEvents, getWaveScale, type GroupSchedule } from './schedule';
 import type { Sound } from './sound';
 import { createSpawnPlacer } from './spawn-placement';
@@ -141,6 +149,10 @@ export const createGame = ({
   const enemies: Enemies = new Map();
   const projectiles: Projectiles = new Map();
   const corpses: Corpses = new Map();
+
+  // Хуки шага физики: отскочивший снаряд пролетает сквозь врага, в которого только что попал
+  // (см. createProjectileHooks в projectiles.ts).
+  const projectileHooks = createProjectileHooks(projectiles);
 
   // Объект один на всю игру, меняем его поля. Настоящие стартовые значения выставляет startGame.
   const state: GameState = {
@@ -376,45 +388,48 @@ export const createGame = ({
   };
 
   // Применяет одно попадание. Толчок врагу уже передала физика в этом шаге, когда пуля в него врезалась, —
-  // здесь только игровая логика: искры в точке удара, пуля исчезает, враг получает урон (и звук попадания),
-  // а если здоровье кончилось, становится призраком (и летит дальше с тем импульсом, что дала ему последняя пуля).
-  // Пулю удаляем при любом касании: после удара она почти остановилась и иначе зависла бы в воздухе.
-  // Если пуля в этом же шаге задела двоих, урон получает только первый.
+  // здесь только игровая логика: искры в точке удара, враг получает урон (и звук попадания), а если здоровье
+  // кончилось, становится призраком (и летит дальше с тем импульсом, что дала ему последняя пуля).
+  // Дальше пуля отскакивает в ближайшего врага, если у неё остались отскоки (см. bounceProjectile), иначе
+  // исчезает: после удара она почти остановилась и иначе зависла бы в воздухе.
   const applyHit = ({ enemyHandle, projectileHandle }: Hit): void => {
     const projectile = projectiles.get(projectileHandle);
 
-    // Пуля уже удалена — её попадание мы уже обработали в этом же шаге.
     if (!projectile) {
       return;
     }
 
-    // Урон и критичность брошены при выстреле (см. Projectile.isCrit) — запоминаем до удаления пули.
+    // Урон и критичность брошены при выстреле (см. Projectile.isCrit) и не меняются на отскоках.
     const { damage, isCrit } = projectile;
     const enemy = enemies.get(enemyHandle);
 
-    // Искры — до удаления пули: её центр в момент столкновения и есть точка удара. Если врага
+    // Искры — до отскока пули: её центр в момент столкновения и есть точка удара. Если врага
     // в списке уже нет, sparks.spawn поднимет искры на поверхность призрака сам (или возьмёт
     // точку пули). Крит-попадание даёт больше, быстрее и другой цвет искр.
     sparks.spawn({ projectilePosition: projectile.body.translation(), enemy, isCrit });
 
-    removeEntity({ world, scene, entities: projectiles, handle: projectileHandle });
+    // Враг уже погиб от предыдущей пули в этом же шаге — урона по призраку нет, но пуля всё равно
+    // обо что-то ударилась и может отскочить.
+    if (enemy) {
+      hitEnemy({ enemy, damage, isCrit });
 
-    // Враг уже погиб от предыдущей пули в этом же шаге — пуля задела его второй раз.
-    if (!enemy) {
-      return;
+      // Звук попадания — только по живому врагу: по призраку урон не наносится, это не «попадание».
+      sound.playHit();
+
+      if (enemy.hp <= 0) {
+        turnIntoCorpse({ world, enemies, corpses, handle: enemyHandle });
+
+        // Звук смерти — сразу за звуком попадания: пуля добила врага. Опыт — по типу врага.
+        sound.playDeath();
+        countKill(enemy);
+      }
     }
 
-    hitEnemy({ enemy, damage, isCrit });
+    // Отскок — после урона: добитый враг уже не в списке и не станет целью отскока.
+    const isBounced = bounceProjectile({ world, projectile, hitHandle: enemyHandle, enemies });
 
-    // Звук попадания — только по живому врагу: по призраку урон не наносится, это не «попадание».
-    sound.playHit();
-
-    if (enemy.hp <= 0) {
-      turnIntoCorpse({ world, enemies, corpses, handle: enemyHandle });
-
-      // Звук смерти — сразу за звуком попадания: пуля добила врага. Опыт — по типу врага.
-      sound.playDeath();
-      countKill(enemy);
+    if (!isBounced) {
+      removeEntity({ world, scene, entities: projectiles, handle: projectileHandle });
     }
   };
 
@@ -427,6 +442,10 @@ export const createGame = ({
     // Менять физический мир прямо во время обхода событий небезопасно: удалять тела, толкать их,
     // менять группы. Поэтому попадания сначала собираем, а применяем после обхода.
     const hits: Hit[] = [];
+
+    // Снаряды, чьё попадание в этом шаге уже записано. Если пуля в одном шаге задела двоих, урон получает
+    // только первый: отскок разворачивает её один раз за шаг.
+    const hitProjectiles = new Set<ColliderHandle>();
 
     // isStarted: true — столкновение началось, false — закончилось. Нужны только начала.
     eventQueue.drainCollisionEvents((handle1: ColliderHandle, handle2: ColliderHandle, isStarted: boolean): void => {
@@ -449,7 +468,8 @@ export const createGame = ({
         return;
       }
 
-      if (projectiles.has(otherHandle)) {
+      if (projectiles.has(otherHandle) && !hitProjectiles.has(otherHandle)) {
+        hitProjectiles.add(otherHandle);
         hits.push({ enemyHandle, projectileHandle: otherHandle });
       }
     });
@@ -482,9 +502,10 @@ export const createGame = ({
     }
 
     // Продвигаем симуляцию на delta секунд: двигаем тела, разрешаем столкновения
-    // и складываем события о них в eventQueue.
+    // и складываем события о них в eventQueue. Хуки отключают контакт отскочившего снаряда
+    // с только что задетым врагом.
     world.timestep = delta;
-    world.step(eventQueue);
+    world.step(eventQueue, projectileHooks);
 
     handleCollisions();
 

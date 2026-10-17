@@ -1,5 +1,5 @@
 // Юнит-тесты игровой логики (src/game.ts) на headless-Rapier: волны и их круги, группы, лимит появлений,
-// стрельба, попадания и поражение, полигон. HUD, звук и цифры урона — заглушки vi.fn.
+// стрельба, попадания и отскоки, поражение, полигон. HUD, звук и цифры урона — заглушки vi.fn.
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { config } from '@/config';
 import type { Enemies } from '@/enemies';
@@ -119,6 +119,37 @@ const getEnemyPoints = (game: Game): Array<{ x: number; z: number }> =>
 
     return { x, z };
   });
+
+// Полигон для отскоков: закреплённые обычные враги на 1000 HP (не умрут и не отлетят) стоят в точках
+// positions, куб делает один выстрел за секунду, у снаряда bounces отскоков.
+const createBounceGame = async ({
+  positions,
+  bounces,
+}: {
+  positions: Array<{ x: number; z: number }>;
+  bounces: number;
+}): Promise<TestGame> => {
+  config.POLYGON_PINNED = true;
+  config.POLYGON_ENEMY_COUNT = positions.length;
+  config.ENEMY_KINDS.normal.hp = 1000;
+  config.FIRE_INTERVAL = 1;
+  config.PROJECTILE_BOUNCES = bounces;
+
+  const testGame = await createPolygonGame();
+
+  [...testGame.game.enemies.values()].forEach(({ body }, index): void => {
+    body.setTranslation({ x: positions[index].x, y: 0.4, z: positions[index].z }, true);
+  });
+
+  return testGame;
+};
+
+// Сколько попаданий даст один выстрел: шагаем чуть меньше секунды — второго залпа ещё не было.
+const countHitsOfOneShot = (testGame: TestGame): number => {
+  runSteps(testGame.game, 57);
+
+  return testGame.showDamageNumber.mock.calls.length;
+};
 
 afterEach(() => vi.clearAllMocks());
 
@@ -481,5 +512,66 @@ describe('полигон', () => {
     game.startGame();
 
     expect(game.state.mode).toBe('waves');
+  });
+});
+
+describe('отскок снаряда', () => {
+  it('Должен отскочить во второго врага и попасть в него тем же выстрелом', async () => {
+    const testGame = await createBounceGame({
+      positions: [
+        { x: 3, z: 0 },
+        { x: 3, z: 2 },
+      ],
+      bounces: 1,
+    });
+
+    expect(countHitsOfOneShot(testGame)).toBe(2);
+  });
+
+  it('Должен убрать снаряд после попадания, если отскоков нет', async () => {
+    const { game, showDamageNumber } = await createBounceGame({
+      positions: [
+        { x: 3, z: 0 },
+        { x: 3, z: 2 },
+      ],
+      bounces: 0,
+    });
+
+    runUntil({ game, isDone: () => showDamageNumber.mock.calls.length > 0, maxSeconds: 1 });
+
+    expect(game.projectiles.size).toBe(0);
+  });
+
+  it('Должен убрать снаряд, если отскакивать не в кого', async () => {
+    const { game, showDamageNumber } = await createBounceGame({ positions: [{ x: 3, z: 0 }], bounces: 3 });
+
+    runUntil({ game, isDone: () => showDamageNumber.mock.calls.length > 0, maxSeconds: 1 });
+
+    expect(game.projectiles.size).toBe(0);
+  });
+
+  it('Должен пролететь сквозь задетого врага во врага за его спиной', async () => {
+    const testGame = await createBounceGame({
+      positions: [
+        { x: 3, z: 0 },
+        { x: 5, z: 0 },
+      ],
+      bounces: 1,
+    });
+
+    expect(countHitsOfOneShot(testGame)).toBe(2);
+  });
+
+  it('Должен скакать между двумя врагами, пока есть отскоки', async () => {
+    // 3 отскока: первый враг → второй → снова первый → снова второй, всего 4 попадания.
+    const testGame = await createBounceGame({
+      positions: [
+        { x: 3, z: 0 },
+        { x: 3, z: 2 },
+      ],
+      bounces: 3,
+    });
+
+    expect(countHitsOfOneShot(testGame)).toBe(4);
   });
 });

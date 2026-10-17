@@ -1,4 +1,4 @@
-import RAPIER, { type ColliderHandle, type World } from '@dimforge/rapier3d-compat';
+import RAPIER, { type ColliderHandle, type PhysicsHooks, type World } from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { PROJECTILE_GROUPS } from './collision-groups';
 import { config, MIN_FIRE_INTERVAL } from './config';
@@ -17,6 +17,13 @@ export type Projectile = Entity & {
   // до попадания: искры, цифра урона и физика читают его из снаряда (applyHit в game.ts), а не делают
   // новый бросок — иначе урон в пути (getIncomingDamage) перестал бы быть точной суммой.
   isCrit: boolean;
+
+  // Сколько отскоков у снаряда ещё осталось (см. PROJECTILE_BOUNCES и bounceProjectile).
+  bouncesLeft: number;
+
+  // Враг, в которого снаряд попал последним: сквозь него снаряд пролетает (см. createProjectileHooks),
+  // иначе отскок во врага за его спиной упёрся бы в него же. До первого попадания — нет.
+  passThroughHandle?: ColliderHandle;
 };
 
 export type Projectiles = Entities<Projectile>;
@@ -276,6 +283,10 @@ const fireOneProjectile = ({
       // больший импульс «масса × скорость», и движок сам сильнее его отбрасывает/раскачивает.
       .setMass(isCrit ? config.PROJECTILE_MASS * config.CRIT_MASS_MULTIPLIER : config.PROJECTILE_MASS)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
+      // FILTER_CONTACT_PAIRS — перед расчётом каждого контакта снаряда Rapier спрашивает хук
+      // filterContactPair (см. createProjectileHooks): так отскочивший снаряд пролетает сквозь врага,
+      // в которого только что попал.
+      .setActiveHooks(RAPIER.ActiveHooks.FILTER_CONTACT_PAIRS)
       .setCollisionGroups(PROJECTILE_GROUPS),
     body,
   );
@@ -286,7 +297,10 @@ const fireOneProjectile = ({
 
   mesh.position.copy(body.translation());
   scene.add(mesh);
-  entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle, damage, isCrit });
+  // Отскоки, как урон и крит, снаряд несёт с собой с момента выстрела.
+  const bouncesLeft = Math.max(0, Math.floor(config.PROJECTILE_BOUNCES));
+
+  entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle, damage, isCrit, bouncesLeft });
 };
 
 // Выпускает залп: по одному снаряду на каждую цель из targets (см. findTargets) — снаряды летят
@@ -302,6 +316,97 @@ export const fireProjectiles = ({
   for (const target of targets) {
     fireOneProjectile({ world, scene, entities, target });
   }
+};
+
+// ─── ОТСКОК ──────────────────────────────────────────────────────────────────
+
+// Квадрат расстояния от врага до точки — для сравнения «кто ближе» корень не нужен.
+const getDistanceSquared = (entity: Entity, point: THREE.Vector3Like): number => {
+  const { x, y, z } = entity.body.translation();
+
+  return (x - point.x) ** 2 + (y - point.y) ** 2 + (z - point.z) ** 2;
+};
+
+// Куда отскочить: ближайший к точке from враг, кроме excludedHandle (того, в кого снаряд только что попал).
+// Дальность не ограничена. Врагов, которых уже добьют летящие снаряды, не пропускаем: отскок — в самого
+// ближнего. Никого, кроме исключённого, нет — undefined.
+export const findBounceTarget = ({
+  enemies,
+  from,
+  excludedHandle,
+}: {
+  enemies: Enemies;
+  from: THREE.Vector3Like;
+  excludedHandle: ColliderHandle;
+}): Target | undefined =>
+  [...enemies]
+    .filter(([handle]) => handle !== excludedHandle)
+    .map(([handle, enemy]) => ({ target: { handle, enemy }, distance: getDistanceSquared(enemy, from) }))
+    .sort((first, second) => first.distance - second.distance)[0]?.target;
+
+// Отскок после попадания во врага hitHandle: если отскоки остались и есть в кого, снаряд летит из точки
+// удара в нового врага — с той же скоростью, в точку прицела (getAimPoint: упреждение, смещение вверх,
+// разброс), сквозь только что задетого. Урон, крит и масса прежние. Цель меняется — прицел куба
+// учитывает урон этого снаряда как летящий в нового врага (см. findTargets).
+// Возвращает true, если снаряд отскочил; false — снаряд пора убрать (вызывающий код удаляет его сам).
+// Зовётся после шага физики, вне обхода событий столкновений, — менять тело здесь безопасно.
+export const bounceProjectile = ({
+  world,
+  projectile,
+  hitHandle,
+  enemies,
+}: {
+  world: World;
+  projectile: Projectile;
+  hitHandle: ColliderHandle;
+  enemies: Enemies;
+}): boolean => {
+  if (projectile.bouncesLeft <= 0) {
+    return false;
+  }
+
+  const muzzle = new THREE.Vector3().copy(projectile.body.translation());
+  const target = findBounceTarget({ enemies, from: muzzle, excludedHandle: hitHandle });
+
+  if (!target) {
+    return false;
+  }
+
+  const direction = getAimPoint({ world, enemy: target.enemy, muzzle }).sub(muzzle);
+
+  if (direction.lengthSq() === 0) {
+    return false;
+  }
+
+  // Физика уже отразила снаряд от врага и раскрутила его — задаём скорость заново, вращение гасим.
+  const velocity = direction.normalize().multiplyScalar(config.PROJECTILE_SPEED);
+
+  projectile.body.setLinvel(velocity, true);
+  projectile.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  projectile.targetHandle = target.handle;
+  projectile.passThroughHandle = hitHandle;
+  projectile.bouncesLeft -= 1;
+
+  return true;
+};
+
+// Хуки Rapier для шага физики (world.step(eventQueue, hooks)): перед расчётом контакта снаряда
+// с врагом спрашиваем, не последний ли это задетый им враг. Если да — контакта нет совсем: ни толчка,
+// ни события столкновения, снаряд пролетает насквозь. Остальные пары — обычный контакт с импульсом.
+// Хук зовётся только для пар, где у кого-то стоит флаг FILTER_CONTACT_PAIRS, — это снаряды.
+export const createProjectileHooks = (projectiles: Projectiles): PhysicsHooks => {
+  const isPassThrough = (projectileHandle: ColliderHandle, otherHandle: ColliderHandle): boolean =>
+    projectiles.get(projectileHandle)?.passThroughHandle === otherHandle;
+
+  return {
+    filterContactPair: (collider1: ColliderHandle, collider2: ColliderHandle): RAPIER.SolverFlags | null =>
+      isPassThrough(collider1, collider2) || isPassThrough(collider2, collider1)
+        ? null
+        : RAPIER.SolverFlags.COMPUTE_IMPULSE,
+
+    // Сенсоров у нас нет — этот хук не зовётся, но интерфейс его требует.
+    filterIntersectionPair: (): boolean => true,
+  };
 };
 
 // Удаляет промахнувшиеся пули — иначе они копились бы бесконечно, а куб считал бы их «летящими в цель»

@@ -155,6 +155,7 @@ export const SECTIONS: Section[] = [
       { key: 'PLAYER_SIZE', label: 'Размер игрока, м', min: 0.3, max: 3, step: 0.1, apply: 'reload' },
       { key: 'FIRE_INTERVAL', label: 'Пауза между выстрелами, с', min: MIN_FIRE_INTERVAL, max: 1, step: 0.01 },
       { key: 'PROJECTILE_COUNT', label: 'Снарядов за выстрел', min: 1, max: 20, step: 1 },
+      { key: 'PROJECTILE_BOUNCES', label: 'Отскоков снаряда', min: 0, max: 10, step: 1 },
       { key: 'PROJECTILE_DAMAGE_MIN', label: 'Урон, мин', min: 1, max: 200, step: 1 },
       { key: 'PROJECTILE_DAMAGE_MAX', label: 'Урон, макс', min: 1, max: 200, step: 1 },
       { key: 'PROJECTILE_SPEED', label: 'Скорость пули, м/с', min: 2, max: 60, step: 0.5 },
