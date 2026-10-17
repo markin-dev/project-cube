@@ -10,7 +10,8 @@
 //   «· перезагрузка» — после перезагрузки страницы (пол, камера и игрок создаются один раз).
 // Изменения сохраняются в браузере (см. config-storage.ts) и переживают перезагрузку.
 // Кроме параметров конфига есть раздел «Волны (отладка)» — ручной запуск волны: это действие,
-// а не настройка, поэтому оно не сохраняется и в «изменено: N» не считается (см. addWavePicker).
+// а не настройка, поэтому оно не сохраняется и в «не сохранено: N» не считается (см. addWavePicker).
+// Раздел «Пресеты» — именованные наборы значений (см. presets.ts): селект и кнопки сохранения.
 import GUI from 'lil-gui';
 import {
   config,
@@ -21,17 +22,11 @@ import {
   type EnemyKind,
   type EnemyKindName,
 } from './config';
-import {
-  applyChanges,
-  clearSavedChanges,
-  countChanges,
-  formatChangesForCode,
-  getChanges,
-  saveChanges,
-} from './config-storage';
+import { formatChangesForCode, getChanges, saveChanges } from './config-storage';
 import { MAX_GLOW_LIGHTS, SHADOW_MAP_SIZE_OPTIONS } from './lighting';
 import { watchNarrowScreen } from './layout';
 import { SCENE_MODE_OPTIONS } from './demo-scene';
+import { createPresetStore, DEFAULT_PRESET_NAME, type PresetStore } from './presets';
 import { TONE_MAPPING_OPTIONS } from './scene';
 import { SOUND_SETS, type Sound, type SoundType } from './sound';
 import { WAVES } from './waves';
@@ -317,8 +312,9 @@ const COPIED_LABEL_DURATION = 1500;
 
 const LEGEND = `
   Без пометки — сразу. «· новые» — для новых врагов, «· волна» — со следующей волны,
-  «· сетка» — со следующей сетки полигона, «· перезагрузка» — после перезагрузки страницы. Изменения сохраняются в этом браузере;
-  перенести их в код — «${COPY_LABEL}» и вставить строки в src/config.ts.
+  «· сетка» — со следующей сетки полигона, «· перезагрузка» — после перезагрузки страницы.
+  Правки сохраняются в этом браузере, но при смене пресета пропадают — сохрани их в пресет.
+  Перенести в код — «${COPY_LABEL}» и вставить строки в src/config.ts.
 `;
 
 export type SettingsPanel = {
@@ -336,6 +332,129 @@ const addLegend = (gui: GUI): void => {
   legend.textContent = LEGEND.replace(/\s+/g, ' ').trim();
   legend.style.cssText = 'padding: 6px 8px; font-size: 11px; line-height: 1.4; opacity: 0.75;';
   gui.$children.prepend(legend);
+};
+
+// Параметры с пометкой «· перезагрузка»: пол, камера и игрок строятся один раз при загрузке страницы.
+// Если загруженный пресет их меняет, панель предлагает перезагрузить страницу (см. createSettingsPanel).
+const RELOAD_SETTINGS = SECTIONS.flatMap(({ settings }) => settings.filter(({ apply }) => apply === 'reload'));
+
+// Спрашивает имя пресета. «Отмена» и пустая строка — пустое имя: вызывающий ничего не делает.
+const askPresetName = (message: string, initial: string): string => window.prompt(message, initial)?.trim() ?? '';
+
+// Раздел «Пресеты» (см. presets.ts): селект пресета и кнопки. Значения грузит не сам раздел,
+// а applyLoad панели — она же применяет их к игре; onSaved — обновить шапку после сохранения.
+// Возвращает функцию обновления раздела: варианты селекта, текущий пресет, доступность кнопок.
+// Это действия, а не настройки: объект picked в конфиг не входит и в «не сохранено: N» не считается.
+const addPresetSection = ({
+  gui,
+  store,
+  applyLoad,
+  onSaved,
+}: {
+  gui: GUI;
+  store: PresetStore;
+  applyLoad: (load: () => void) => void;
+  onSaved: () => void;
+}): (() => void) => {
+  const folder = gui.addFolder('Пресеты');
+  const picked = { name: store.getCurrentName() };
+  const select = folder.add(picked, 'name', store.getNames()).name('Пресет');
+
+  // Переключение. Есть несохранённые правки — спрашиваем: они пропадут. Отказ — селект возвращается
+  // на текущий пресет (lil-gui уже записал новое имя в picked).
+  select.onChange((): void => {
+    const unsaved = store.countUnsaved();
+
+    const isConfirmed =
+      unsaved === 0 ||
+      window.confirm(`Несохранённых изменений: ${unsaved}. Переключиться на «${picked.name}» и потерять их?`);
+
+    if (!isConfirmed) {
+      picked.name = store.getCurrentName();
+      select.updateDisplay();
+
+      return;
+    }
+
+    applyLoad((): void => store.load(picked.name));
+  });
+
+  const actions = {
+    saveToCurrent: (): void => {
+      store.saveToCurrent();
+      onSaved();
+    },
+
+    // Новый пресет из текущих значений; он же становится текущим. Имя «По умолчанию» занято кодом,
+    // имя существующего пресета — перезапись после подтверждения.
+    saveAsNew: (): void => {
+      const name = askPresetName('Имя нового пресета:', '');
+
+      if (name === '') {
+        return;
+      }
+
+      if (name === DEFAULT_PRESET_NAME) {
+        window.alert(`Имя «${DEFAULT_PRESET_NAME}» занято: это значения из кода.`);
+
+        return;
+      }
+
+      if (store.hasPreset(name) && !window.confirm(`Пресет «${name}» уже есть. Перезаписать его?`)) {
+        return;
+      }
+
+      store.saveAsNew(name);
+      onSaved();
+    },
+
+    // Переименование не перезаписывает другой пресет: занятое имя — сообщение и отказ.
+    rename: (): void => {
+      const name = askPresetName('Новое имя пресета:', store.getCurrentName());
+
+      if (name === '' || name === store.getCurrentName()) {
+        return;
+      }
+
+      if (store.hasPreset(name)) {
+        window.alert(`Имя «${name}» уже занято.`);
+
+        return;
+      }
+
+      store.rename(name);
+      onSaved();
+    },
+
+    // Удаление с подтверждением; дальше — «По умолчанию» (store.remove загружает его сам).
+    remove: (): void => {
+      if (window.confirm(`Удалить пресет «${store.getCurrentName()}»?`)) {
+        applyLoad((): void => store.remove());
+      }
+    },
+  };
+
+  const saveToCurrentButton = folder.add(actions, 'saveToCurrent').name('Сохранить в текущий');
+  folder.add(actions, 'saveAsNew').name('Сохранить в новый…');
+  const renameButton = folder.add(actions, 'rename').name('Переименовать…');
+  const removeButton = folder.add(actions, 'remove').name('Удалить');
+
+  // Раздел маленький и нужен часто — раскрыт сразу (остальные разделы свёрнуты).
+  folder.open();
+
+  // «По умолчанию» — значения кода: сохранять в него, переименовывать и удалять нельзя.
+  const refresh = (): void => {
+    picked.name = store.getCurrentName();
+    select.options(store.getNames());
+
+    for (const button of [saveToCurrentButton, renameButton, removeButton]) {
+      button.enable(!store.isDefault());
+    }
+  };
+
+  refresh();
+
+  return refresh;
 };
 
 // Числовое поле типа врага и его ползунок.
@@ -376,7 +495,7 @@ const LATE_WAVE_NUMBERS = [20, 30, 40, 50];
 // (startGame в game.ts): арена чистится от врагов, снарядов и призраков, счётчики обнуляются.
 // После этого волны идут как обычно: номер растёт, составы повторяются по кругу, сила — по номеру.
 // Это действие, а не настройка: объект picked в конфиг не входит, поэтому не сохраняется в localStorage
-// и не считается в «изменено: N».
+// и не считается в «не сохранено: N».
 // Возвращает функцию синхронизации: селект показывает текущую волну (вызывается из startWave в game.ts),
 // иначе после автоматического перехода на следующую волну в селекте осталась бы старая. Номера,
 // которого нет среди вариантов (например, 27), lil-gui показывает как есть.
@@ -436,7 +555,7 @@ export const PANEL_CONFIG_KEYS: Array<keyof Config> = [
 // Раздел «Звук»: общая громкость и на каждый тип — своя папка с тремя настройками:
 // громкостью, чекбоксом «Выключить звук» (свой мут) и выбором набора звучания.
 // Наборы — не параметры конфига, а состояние sound.ts (своя запись в localStorage), поэтому селект
-// собирается вручную — так же, как и выбор волны в addWavePicker: он не считается в «изменено: N».
+// собирается вручную — так же, как и выбор волны в addWavePicker: он не считается в «не сохранено: N».
 const addSoundSection = (gui: GUI, sound: Sound): void => {
   const folder = gui.addFolder('Звук');
 
@@ -466,16 +585,19 @@ const addSoundSection = (gui: GUI, sound: Sound): void => {
 // onChange вызывается при каждом изменении — там игра применяет то, что не читается само (цвета, гравитация).
 // onStartWave(waveNumber) — запустить волну со сквозным номером waveNumber вручную (отладка, см. addWavePicker).
 // onRebuildPolygon — кнопка «Пересоздать сетку» раздела «Полигон»: построить сетку заново по текущим параметрам.
+// onPresetLoad — загружен пресет (или отменены правки): значения поменялись разом, игру пора начать заново.
 // sound — звук игры: раздел «Звук» читает и меняет его наборы (см. addSoundSection).
 export const createSettingsPanel = ({
   onChange,
   onStartWave,
   onRebuildPolygon,
+  onPresetLoad,
   sound,
 }: {
   onChange: () => void;
   onStartWave: (waveNumber: number) => void;
   onRebuildPolygon: () => void;
+  onPresetLoad: () => void;
   sound: Sound;
 }): SettingsPanel => {
   // closeFolders — все разделы изначально свёрнуты, чтобы панель не занимала пол-экрана.
@@ -496,7 +618,54 @@ export const createSettingsPanel = ({
 
   addLegend(gui);
 
-  // Сначала раздел отладки — он нужен чаще всего, чтобы не листать длинный список параметров.
+  const presets = createPresetStore();
+
+  // Любая загрузка значений — выбор пресета, удаление, отмена правок — идёт через эту обёртку:
+  // ползунки показывают новые значения, игра их применяет (onChange) и начинается заново (onPresetLoad),
+  // шапка и раздел пресетов обновляются. Если поменялись параметры «· перезагрузка» — предлагаем
+  // перезагрузить страницу: иначе их не видно (рабочие значения уже записаны и применятся после неё).
+  const applyLoad = (load: () => void): void => {
+    const reloadValuesBefore = RELOAD_SETTINGS.map(({ key }) => config[key]);
+
+    load();
+
+    for (const controller of gui.controllersRecursive()) {
+      controller.updateDisplay();
+    }
+
+    onChange();
+    onPresetLoad();
+    updateTitle();
+    refreshPresets();
+
+    const changedReloadLabels = RELOAD_SETTINGS.filter(({ key }, index) => config[key] !== reloadValuesBefore[index])
+      .map(({ label }) => label)
+      .join(', ');
+
+    const isReloadWanted =
+      changedReloadLabels !== '' &&
+      window.confirm(
+        `Пресет меняет параметры, которые применяются после перезагрузки страницы: ${changedReloadLabels}. ` +
+          'Перезагрузить сейчас?',
+      );
+
+    if (isReloadWanted) {
+      window.location.reload();
+    }
+  };
+
+  // Пресеты — первым разделом: от них зависят все значения ниже.
+  const refreshPresets = addPresetSection({
+    gui,
+    store: presets,
+    applyLoad,
+    onSaved: (): void => {
+      refreshPresets();
+      updateTitle();
+    },
+  });
+
+  // Дальше раздел отладки — он нужен чаще всего, чтобы не листать длинный список параметров.
   const setCurrentWave = addWavePicker(gui, onStartWave);
 
   for (const { title, settings, booleans = [], selects = [], isWithEnemyKinds, isWithPolygonRebuild } of SECTIONS) {
@@ -520,7 +689,7 @@ export const createSettingsPanel = ({
       addEnemyKinds(folder.addFolder('Типы врагов'));
     }
 
-    // Кнопка — действие, а не настройка (как «Перезапустить волну»): в конфиг не пишет и в «изменено: N»
+    // Кнопка — действие, а не настройка (как «Перезапустить волну»): в конфиг не пишет и в «не сохранено: N»
     // не считается.
     if (isWithPolygonRebuild) {
       folder.add({ rebuild: onRebuildPolygon }, 'rebuild').name('Пересоздать сетку');
@@ -536,11 +705,12 @@ export const createSettingsPanel = ({
     colorsFolder.addColor(config, key).name(label);
   }
 
-  // В шапке — сколько параметров отличается от значений в коде.
+  // В шапке — текущий пресет и сколько параметров отличается от него (несохранённые правки).
   const updateTitle = (): void => {
-    const changesCount = countChanges(getChanges(config, DEFAULT_CONFIG));
+    const unsaved = presets.countUnsaved();
+    const unsavedText = unsaved > 0 ? ` · не сохранено: ${unsaved}` : '';
 
-    gui.title(changesCount > 0 ? `${PANEL_TITLE} · изменено: ${changesCount}` : PANEL_TITLE);
+    gui.title(`${PANEL_TITLE} · ${presets.getCurrentName()}${unsavedText}`);
   };
 
   // Кнопки панели: в lil-gui кнопка — это поле-функция объекта, по клику она вызывается.
@@ -572,18 +742,10 @@ export const createSettingsPanel = ({
         .catch(showText);
     },
 
-    // Всё как в коде: стираем сохранённые изменения и переписываем рабочий конфиг значениями из DEFAULT_CONFIG.
-    // updateDisplay — ползунки сами не знают, что значения поменяли не через них.
+    // Отменить несохранённые правки — загрузить текущий пресет заново (на «По умолчанию» — значения кода).
+    // Сцену это не трогает: она в пресет не входит.
     reset: (): void => {
-      clearSavedChanges();
-      applyChanges(config, DEFAULT_CONFIG);
-
-      for (const controller of gui.controllersRecursive()) {
-        controller.updateDisplay();
-      }
-
-      updateTitle();
-      onChange();
+      applyLoad((): void => presets.load(presets.getCurrentName()));
     },
 
     reload: (): void => {
@@ -592,7 +754,7 @@ export const createSettingsPanel = ({
   };
 
   const copyButton = gui.add(actions, 'copy').name(COPY_LABEL);
-  gui.add(actions, 'reset').name('Сбросить всё');
+  gui.add(actions, 'reset').name('Отменить несохранённое');
   gui.add(actions, 'reload').name('Перезагрузить страницу');
 
   // onChange срабатывает на каждое изменение — в том числе на каждое движение ползунка.

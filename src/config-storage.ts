@@ -13,7 +13,7 @@ const STORAGE_KEY = 'project-cube:config-changes';
 // Числа сравниваем с допуском: ползунок может вернуть 0.30000000000000004 вместо 0.3.
 const NUMBER_TOLERANCE = 1e-9;
 
-type Values = Record<string, unknown>;
+export type Values = Record<string, unknown>;
 
 // Проверка «это обычный объект с полями?» (не null и не массив).
 // Запись `value is Values` сообщает TypeScript: если проверка прошла, value — объект с полями.

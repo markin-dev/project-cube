@@ -114,7 +114,8 @@ const syncSimulation = (): void => {
 // Панель настроек. onStartWave — ручной запуск волны из раздела «Волны (отладка)»: ссылку на игру
 // берём через стрелку, панель вызовет её уже после создания игры. На полигоне волн нет — выбор волны
 // там ничего не делает. onRebuildPolygon — кнопка «Пересоздать сетку»: действует только на полигоне.
-// sound — раздел «Звук»: выбор наборов.
+// onPresetLoad — загружен пресет: значения поменялись разом, и то, что идёт на арене, начинается заново —
+// иначе параметры «· волна», «· новые» и «· сетка» применились бы не сразу. sound — раздел «Звук»: выбор наборов.
 const settingsPanel = createSettingsPanel({
   onChange: applyLiveConfig,
   onStartWave: (waveNumber: number): void => {
@@ -125,6 +126,13 @@ const settingsPanel = createSettingsPanel({
   onRebuildPolygon: (): void => {
     if (config.SCENE_MODE === 'polygon') {
       game.startPolygon();
+    }
+  },
+  onPresetLoad: (): void => {
+    if (game.state.mode === 'polygon') {
+      game.startPolygon();
+    } else {
+      game.startGame();
     }
   },
   sound,

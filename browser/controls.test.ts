@@ -16,9 +16,12 @@ const getEnemyPositions = (): number[][] =>
 
 const isLoseScreenShown = (): boolean => document.body.innerText.includes(LOSE_HINT);
 
-// Селект «Волна» — первый селект в панели настроек (раздел «Волны (отладка)» идёт первым).
+// Селект «Волна» раздела «Волны (отладка)» — тот, у которого есть поздняя волна «50». Ищем по варианту,
+// а не по порядку: выше него в панели стоит селект пресетов.
 const getWaveSelect = (): HTMLSelectElement => {
-  const select = document.querySelector('.lil-gui select');
+  const select = [...document.querySelectorAll('.lil-gui select')].find((element): boolean =>
+    [...element.querySelectorAll('option')].some((option) => option.textContent === '50'),
+  );
 
   if (!(select instanceof HTMLSelectElement)) {
     throw new Error('селект «Волна» не найден');
