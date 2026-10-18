@@ -318,6 +318,23 @@ describe('бой', () => {
 
     expect(game.state.status).toBe('lost');
   });
+
+  it('Должен не дать врагу, толкнутому к кубу, долететь до него быстрее бега', async () => {
+    const { game } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    runSteps(game, 1);
+
+    // Враг в 4 м от куба летит к нему 15 м/с — без предела долетел бы за 0.2 с. С пределом за полсекунды
+    // он проходит обычным шагом около метра.
+    for (const { body } of game.enemies.values()) {
+      body.setTranslation({ x: 4, y: 0.4, z: 0 }, true);
+      body.setLinvel({ x: -15, y: 0, z: 0 }, true);
+    }
+
+    runSteps(game, 30);
+
+    expect(game.state.status).toBe('playing');
+  });
 });
 
 describe('прокачка', () => {

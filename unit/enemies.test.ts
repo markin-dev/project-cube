@@ -8,6 +8,7 @@ import {
   isEnemyBelowFloor,
   isEnemyOverArena,
   isEnemySupported,
+  limitInwardSpeed,
   moveEnemies,
   type Enemies,
   type Enemy,
@@ -83,6 +84,19 @@ const getDampedSpeeds = async (damping: number): Promise<{ radial: number; tange
 // Враг типа kindName в стороне от центра, появившийся в волне силы strength (см. spawnEnemy).
 const spawnWithStrength = (kindName: EnemyKindName, strength: number): Enemy =>
   addTestEnemy({ world, scene, enemies: new Map(), x: 5, y: 0.4, z: 0, kindName, strength });
+
+// Скорость врага в точке (x, пол, z) после limitInwardSpeed, если до неё скорость была velocity.
+const getLimitedVelocity = ({ x, z, velocity }: { x: number; z: number; velocity: number[] }): number[] => {
+  const enemies: Enemies = new Map();
+  const enemy = addTestEnemy({ world, scene, enemies, x, y: 0.4, z });
+
+  enemy.body.setLinvel({ x: velocity[0], y: velocity[1], z: velocity[2] }, true);
+  limitInwardSpeed(enemies);
+
+  const { x: vx, y: vy, z: vz } = enemy.body.linvel();
+
+  return [vx, vy, vz];
+};
 
 describe('isEnemyOverArena', () => {
   it.each([
@@ -257,5 +271,18 @@ describe('moveEnemies', () => {
     simulate({ testWorld, enemies, seconds: 0.3, isStepping: false });
 
     expect(Math.hypot(getSpeeds(airborne).radial, getSpeeds(airborne).tangential)).toBeCloseTo(0, 5);
+  });
+});
+
+describe('limitInwardSpeed', () => {
+  // Враг в (5, 0) или (3, 4) — оба в 5 м от куба; ENEMY_SPEED по умолчанию 2 м/с.
+  it.each([
+    { name: 'к кубу быстрее бега', x: 5, z: 0, velocity: [-10, 0, 0], expected: [-2, 0, 0] },
+    { name: 'к кубу по диагонали', x: 3, z: 4, velocity: [-6, 0, -8], expected: [-1.2, 0, -1.6] },
+    { name: 'к кубу, вбок и вверх', x: 5, z: 0, velocity: [-10, 3, 4], expected: [-2, 3, 4] },
+    { name: 'от куба', x: 5, z: 0, velocity: [10, 0, 0], expected: [10, 0, 0] },
+    { name: 'к кубу медленнее бега', x: 5, z: 0, velocity: [-1.5, 0, 0], expected: [-1.5, 0, 0] },
+  ])('Должен для скорости «$name» оставить $expected', ({ x, z, velocity, expected }) => {
+    expect(getLimitedVelocity({ x, z, velocity })).toEqual(expected.map((value) => expect.closeTo(value, 5)));
   });
 });

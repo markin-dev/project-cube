@@ -266,6 +266,39 @@ export const moveEnemies = ({
   }
 };
 
+// Враг не приближается к кубу быстрее, чем бежит сам (config.ENEMY_SPEED). Толчок к центру — отскок пули
+// со спины, сосед в толпе — разгонял бы лёгкого врага к кубу в разы быстрее бега (пуля 0.15 кг разгоняет
+// крошку 0.125 кг до ~10 м/с), и он долетал бы до куба раньше, чем тот успеет выстрелить, — мгновенное поражение.
+// Поэтому после шага физики у каждого врага срезается только составляющая скорости к центру по полу,
+// и только её избыток сверх ENEMY_SPEED: толчки от куба, вбок и вверх, кувырки остаются как были, а враг,
+// толкнутый к кубу, просто подходит обычным шагом. Неподвижных врагов (закреплённых на полигоне) это
+// не касается — скорости у них нет.
+export const limitInwardSpeed = (enemies: Enemies): void => {
+  const limit = Math.max(0, config.ENEMY_SPEED);
+
+  for (const { body } of enemies.values()) {
+    const { x, z } = body.translation();
+    const distance = Math.hypot(x, z);
+
+    // Враг ровно в центре — направления «к кубу» нет (и туда он не попадёт: там стоит куб).
+    if (distance === 0) {
+      continue;
+    }
+
+    // Единичный вектор к центру и скорость вдоль него (скалярное произведение), как в moveEnemies.
+    const velocity = body.linvel();
+    const radialX = -x / distance;
+    const radialZ = -z / distance;
+    const excess = velocity.x * radialX + velocity.z * radialZ - limit;
+
+    if (excess <= 0) {
+      continue;
+    }
+
+    body.setLinvel({ x: velocity.x - radialX * excess, y: velocity.y, z: velocity.z - radialZ * excess }, true);
+  }
+};
+
 // Поворачиваем полоски здоровья всех врагов к камере.
 export const turnHpBarsToCamera = (enemies: Enemies, camera: THREE.Camera): void => {
   for (const { hpBar } of enemies.values()) {

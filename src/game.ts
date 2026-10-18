@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { config } from './config';
 import { turnIntoCorpse, turnOutOfArenaIntoCorpses, updateCorpses, type Corpses } from './corpses';
 import type { ShowDamageNumber } from './damage-numbers';
-import { damageEnemy, moveEnemies, spawnEnemy, type Enemies, type Enemy } from './enemies';
+import { damageEnemy, limitInwardSpeed, moveEnemies, spawnEnemy, type Enemies, type Enemy } from './enemies';
 import { removeAllEntities, removeEntity, removeFallenEntities } from './entity';
 import type { Hud } from './hud';
 import { getPolygonKindName, getPolygonPoints } from './polygon';
@@ -637,6 +637,10 @@ export const createGame = ({
     world.step(eventQueue, projectileHooks);
 
     handleCollisions();
+
+    // Толчок к кубу (отскок пули со спины, сосед) не разгоняет врага к кубу быстрее его бега — иначе лёгкий
+    // враг долетал бы до куба мгновенно (см. limitInwardSpeed). Убитые к этому моменту уже призраки.
+    limitInwardSpeed(enemies);
 
     // Если в этом шаге враг добрался до игрока, игра уже окончена — дальше не продолжаем.
     if (state.status !== 'playing') {
