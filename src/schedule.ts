@@ -44,6 +44,8 @@ export const getWaveBudget = (wave: Wave): number =>
 // каждая следующая — в config.WAVE_GROWTH раз больше. Во сколько раз нужный бюджет больше бюджета
 // состава (m), делится между числом врагов (m^доля) и их крепостью (m^(1 − доля)),
 // доля — config.WAVE_COUNT_SHARE. Так волна-рой крошек и волна-громилы при одном номере одинаково тяжелы.
+// Волна после круга не легче, чем записана (m не меньше 1): иначе тяжёлый состав, которому бюджет
+// ещё не дорос (например, брут с отрядом сразу после круга), вышел бы с врагами слабее их типа.
 export const getWaveScale = ({
   wave,
   waveNumber,
@@ -60,7 +62,7 @@ export const getWaveScale = ({
   }
 
   const targetBudget = config.WAVE_ENDLESS_BUDGET * Math.pow(config.WAVE_GROWTH, waveNumber - cycleLength - 1);
-  const multiplier = targetBudget / budget;
+  const multiplier = Math.max(1, targetBudget / budget);
 
   return {
     count: Math.pow(multiplier, config.WAVE_COUNT_SHARE),

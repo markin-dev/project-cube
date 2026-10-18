@@ -54,11 +54,28 @@ describe('getWaveScale', () => {
   });
 
   it('Должен дать первой волне после круга бюджет WAVE_ENDLESS_BUDGET', () => {
-    expect(getBudgetMultiplier(FAKE_CYCLE_LENGTH + 1) * getWaveBudget(FAKE_BUDGET_WAVE)).toBeCloseTo(200);
+    const budget = getBudgetMultiplier(FAKE_CYCLE_LENGTH + 1) * getWaveBudget(FAKE_BUDGET_WAVE);
+
+    expect(budget).toBeCloseTo(config.WAVE_ENDLESS_BUDGET);
   });
 
   it('Должен увеличивать бюджет в WAVE_GROWTH раз за волну', () => {
-    expect(getBudgetMultiplier(FAKE_CYCLE_LENGTH + 5) / getBudgetMultiplier(FAKE_CYCLE_LENGTH + 4)).toBeCloseTo(1.05);
+    const growth = getBudgetMultiplier(FAKE_CYCLE_LENGTH + 5) / getBudgetMultiplier(FAKE_CYCLE_LENGTH + 4);
+
+    expect(growth).toBeCloseTo(config.WAVE_GROWTH);
+  });
+
+  it('Должен не делать волну после круга легче, чем она записана', () => {
+    // Бюджет 50 против записанных 100: волна осталась бы вдвое слабее — вместо этого идёт как записана.
+    config.WAVE_ENDLESS_BUDGET = 50;
+
+    const scale = getWaveScale({
+      wave: FAKE_BUDGET_WAVE,
+      waveNumber: FAKE_CYCLE_LENGTH + 1,
+      cycleLength: FAKE_CYCLE_LENGTH,
+    });
+
+    expect(scale).toEqual({ count: 1, strength: 1 });
   });
 
   it.each([
@@ -71,6 +88,7 @@ describe('getWaveScale', () => {
     strength,
   }) => {
     // Первая волна после круга: бюджет 200 против записанных 100 — рост ×2.
+    config.WAVE_ENDLESS_BUDGET = 200;
     config.WAVE_COUNT_SHARE = share;
 
     const scale = getWaveScale({
