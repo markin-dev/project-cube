@@ -166,6 +166,12 @@ describe('spawnEnemy', () => {
     expect(enemy.hp).toBe(1);
   });
 
+  it('Должен создать врага без CCD — иначе быстрая пуля с CCD пролетала бы его насквозь', () => {
+    const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 5, y: 0.4, z: 0 });
+
+    expect(enemy.body.isCcdEnabled()).toBe(false);
+  });
+
   it.each([
     [true, true],
     [false, false],

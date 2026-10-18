@@ -107,6 +107,39 @@ const createHooks = (): ReturnType<typeof createProjectileHooks> => {
 // Точка, откуда ищем цель отскока, — центр врага в (5, пол, 0).
 const BOUNCE_FROM = { x: 5, y: 0.4, z: 0 };
 
+// Попадёт ли быстрая пуля (60 м/с) в подвижную крошку на длинном шаге физики 1/30 (как на ускорении): за шаг
+// пуля пролетает 2 м — в пять раз больше крошки. Дистанция 7.3 м не кратна пути за шаг: без CCD пуля
+// перескочила бы крошку, не задев. Мир свой — чтобы события столкновений были только этой пары.
+const isFastShotHit = async (): Promise<boolean> => {
+  const testWorld = await createTestWorld();
+  const enemy = addTestEnemy({ ...testWorld, enemies: new Map(), x: 7.3, y: 0.2, z: 0, kindName: 'tiny' });
+  const projectiles: Projectiles = new Map();
+  const hooks = createProjectileHooks(projectiles);
+  const enemyHandle = getHandle(enemy);
+  const state = { isHit: false };
+
+  config.PROJECTILE_AIM_SPREAD = 0;
+
+  fireProjectiles({
+    ...testWorld,
+    entities: projectiles,
+    targets: [{ handle: enemyHandle, enemy }],
+    stats: { ...getBaseStats(), projectileSpeed: 60 },
+  });
+
+  testWorld.world.timestep = 1 / 30;
+
+  Array.from({ length: 10 }).forEach((): void => {
+    testWorld.world.step(testWorld.eventQueue, hooks);
+
+    testWorld.eventQueue.drainCollisionEvents((first: number, second: number, isStarted: boolean): void => {
+      state.isHit ||= isStarted && [first, second].includes(enemyHandle);
+    });
+  });
+
+  return state.isHit;
+};
+
 afterEach(() => vi.clearAllMocks());
 
 describe('rollDamage', () => {
@@ -337,6 +370,10 @@ describe('fireProjectiles', () => {
 
       expect(projectile.body.mass()).toBeCloseTo(0.5, 5);
     });
+  });
+
+  it('Должен попасть быстрой пулей в подвижного врага на длинном шаге физики', async () => {
+    expect(await isFastShotHit()).toBe(true);
   });
 
   it('Должен дать снаряду PROJECTILE_BOUNCES отскоков', () => {
