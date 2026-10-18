@@ -29,6 +29,7 @@ import { SCENE_MODE_OPTIONS } from './demo-scene';
 import { createPresetStore, DEFAULT_PRESET_NAME, type PresetStore } from './presets';
 import { TONE_MAPPING_OPTIONS } from './scene';
 import { SOUND_SETS, type Sound, type SoundType } from './sound';
+import { RARITIES, type Rarity, type UpgradeStat } from './upgrades';
 import { WAVES } from './waves';
 
 type ApplyMode = 'now' | 'newEnemies' | 'nextWave' | 'nextGrid' | 'reload';
@@ -58,9 +59,10 @@ type NumberSetting = {
   apply?: ApplyMode;
 };
 
-// Имя любого поля конфига, кроме вложенного объекта ENEMY_KINDS (он разворачивается в папки
-// с типами врагов). Нужно селектам: их значения бывают и числами, и строками.
-type SettingKey = Exclude<keyof Config, 'ENEMY_KINDS'>;
+// Имя любого поля конфига, кроме вложенных объектов: ENEMY_KINDS разворачивается в папки с типами врагов,
+// UPGRADE_RARITY_WEIGHTS и UPGRADE_VALUES — в папки раздела «Усиления». Нужно селектам: их значения
+// бывают и числами, и строками.
+type SettingKey = Exclude<keyof Config, 'ENEMY_KINDS' | 'UPGRADE_RARITY_WEIGHTS' | 'UPGRADE_VALUES'>;
 
 // Чекбокс: поле-переключатель true/false (например, включены ли тени).
 type BooleanSetting = {
@@ -96,6 +98,9 @@ type Section = {
 
   // Добавить в конец раздела кнопку «Показать анимацию уровня» (см. createSettingsPanel).
   isWithLevelUpPreview?: boolean;
+
+  // Добавить в раздел папки усилений: шансы редкостей и прибавки по редкостям (см. addUpgrades).
+  isWithUpgrades?: boolean;
 };
 
 // Названия типов врагов для папок панели и селекта типа на полигоне. Record с ключом EnemyKindName:
@@ -192,6 +197,13 @@ export const SECTIONS: Section[] = [
       { key: 'LEVEL_UP_BEAM_HEIGHT', label: 'Анимация уровня: высота столба, м', min: 0, max: 20, step: 0.5 },
     ],
     isWithLevelUpPreview: true,
+  },
+  {
+    // Выбор усилений при повышении уровня (см. upgrades.ts). Всё читается при каждом выборе — сразу.
+    title: 'Усиления',
+    settings: [{ key: 'UPGRADE_CHOICES', label: 'Карточек на выбор', min: 1, max: 5, step: 1 }],
+    booleans: [{ key: 'UPGRADES_ENABLED', label: 'Выбор усилений' }],
+    isWithUpgrades: true,
   },
   {
     title: 'Враги',
@@ -500,6 +512,55 @@ const addEnemyKinds = (folder: GUI): void => {
   }
 };
 
+// Названия редкостей в панели — с цветом, по которому их узнают на карточках.
+const RARITY_LABELS: Record<Rarity, string> = {
+  common: 'Обычная (серая)',
+  uncommon: 'Необычная (зелёная)',
+  rare: 'Редкая (синяя)',
+  epic: 'Эпическая (фиолетовая)',
+  legendary: 'Легендарная (оранжевая)',
+};
+
+// Самый большой вес редкости на ползунке.
+export const RARITY_WEIGHT_MAX = 100;
+
+// Ползунки прибавок усиления: подпись папки с единицей, верх диапазона и шаг (низ — 0: «не выпадает»).
+type UpgradeValueSetting = {
+  stat: UpgradeStat;
+  label: string;
+  max: number;
+  step: number;
+};
+
+export const UPGRADE_VALUE_SETTINGS: UpgradeValueSetting[] = [
+  { stat: 'damage', label: 'Урон, % от базы', max: 100, step: 1 },
+  { stat: 'fireRate', label: 'Скорость атаки, % от базы', max: 100, step: 1 },
+  { stat: 'critChance', label: 'Шанс крита, п.п.', max: 50, step: 1 },
+  { stat: 'critDamage', label: 'Урон крита, к множителю', max: 3, step: 0.05 },
+  { stat: 'projectileMass', label: 'Вес снаряда, % от базы', max: 200, step: 5 },
+  { stat: 'projectileSpeed', label: 'Скорость снаряда, % от базы', max: 100, step: 1 },
+  { stat: 'bounces', label: 'Отскоки, шт.', max: 5, step: 1 },
+  { stat: 'projectileCount', label: 'Снаряды, шт.', max: 5, step: 1 },
+];
+
+// Папки раздела «Усиления»: шансы редкостей (относительные веса) и по папке на каждое усиление —
+// прибавка на каждой редкости (0 — на этой редкости не выпадает).
+const addUpgrades = (folder: GUI): void => {
+  const weightsFolder = folder.addFolder('Шансы редкостей (веса)');
+
+  for (const rarity of RARITIES) {
+    weightsFolder.add(config.UPGRADE_RARITY_WEIGHTS, rarity, 0, RARITY_WEIGHT_MAX, 1).name(RARITY_LABELS[rarity]);
+  }
+
+  for (const { stat, label, max, step } of UPGRADE_VALUE_SETTINGS) {
+    const statFolder = folder.addFolder(label);
+
+    for (const rarity of RARITIES) {
+      statFolder.add(config.UPGRADE_VALUES[stat], rarity, 0, max, step).name(RARITY_LABELS[rarity]);
+    }
+  }
+};
+
 // Поздние волны в селекте «Волна» — после обучающего круга (волн списка): проверить, как растёт сила.
 const LATE_WAVE_NUMBERS = [20, 30, 40, 50];
 
@@ -559,6 +620,8 @@ export const PANEL_CONFIG_KEYS: Array<keyof Config> = [
     ...selects.map(({ key }) => key),
   ]),
   'ENEMY_KINDS',
+  'UPGRADE_RARITY_WEIGHTS',
+  'UPGRADE_VALUES',
   'SOUND_VOLUME',
   ...SOUND_TYPE_SETTINGS.flatMap(({ volumeKey, mutedKey }) => [volumeKey, mutedKey]),
   ...COLOR_SETTINGS.map(({ key }) => key),
@@ -692,6 +755,7 @@ export const createSettingsPanel = ({
       isWithEnemyKinds,
       isWithPolygonRebuild,
       isWithLevelUpPreview,
+      isWithUpgrades,
     } = section;
     const folder = gui.addFolder(title);
 
@@ -711,6 +775,10 @@ export const createSettingsPanel = ({
 
     if (isWithEnemyKinds) {
       addEnemyKinds(folder.addFolder('Типы врагов'));
+    }
+
+    if (isWithUpgrades) {
+      addUpgrades(folder);
     }
 
     // Кнопка — действие, а не настройка (как «Перезапустить волну»): в конфиг не пишет и в «не сохранено: N»

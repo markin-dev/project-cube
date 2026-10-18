@@ -21,6 +21,7 @@ import {
   type Projectile,
   type Projectiles,
 } from '@/projectiles';
+import { createBonuses, getCombatStats, type CombatStats } from '@/upgrades';
 import { addTestEnemy, createTestWorld, getHandle } from './fixtures';
 
 const { world, scene } = await createTestWorld();
@@ -33,11 +34,14 @@ const getMuzzle = (): THREE.Vector3 => new THREE.Vector3(0, config.PLAYER_SIZE /
 
 const rollMany = (roll: () => number): number[] => Array.from({ length: ROLLS_COUNT }, roll);
 
-// Выпускает снаряд в enemy и возвращает список снарядов.
-const fireAt = (enemy: Enemy): Projectiles => {
+// Боевые характеристики без усилений — база из текущего config.
+const getBaseStats = (): CombatStats => getCombatStats(createBonuses());
+
+// Выпускает снаряд в enemy (с характеристиками stats, по умолчанию — база) и возвращает список снарядов.
+const fireAt = (enemy: Enemy, stats: CombatStats = getBaseStats()): Projectiles => {
   const projectiles: Projectiles = new Map();
 
-  fireProjectiles({ world, scene, entities: projectiles, targets: [{ handle: getHandle(enemy), enemy }] });
+  fireProjectiles({ world, scene, entities: projectiles, targets: [{ handle: getHandle(enemy), enemy }], stats });
 
   return projectiles;
 };
@@ -47,7 +51,7 @@ const getVolleysPerSecond = (step: number): number => {
   const fireVolley = vi.fn((): number => 1);
 
   Array.from({ length: Math.round(SIMULATED_SECONDS / step) }).reduce<number>(
-    (timer) => runFireTimer({ timer, delta: step, fireVolley }),
+    (timer) => runFireTimer({ timer, delta: step, interval: config.FIRE_INTERVAL, fireVolley }),
     0,
   );
 
@@ -138,15 +142,11 @@ describe('isCritRolled', () => {
     [0, 0],
     [1, ROLLS_COUNT],
   ])('Должен при шансе %s давать %s критов', (chance, expected) => {
-    config.CRIT_CHANCE = chance;
-
-    expect(rollMany(() => Number(isCritRolled())).filter(Boolean).length).toBe(expected);
+    expect(rollMany(() => Number(isCritRolled(chance))).filter(Boolean).length).toBe(expected);
   });
 
   it('Должен при шансе 0.5 давать криты примерно в половине бросков', () => {
-    config.CRIT_CHANCE = 0.5;
-
-    const crits = Array.from({ length: 20000 }, isCritRolled).filter(Boolean).length;
+    const crits = Array.from({ length: 20000 }, () => isCritRolled(0.5)).filter(Boolean).length;
 
     expect(crits / 20000).toBeCloseTo(0.5, 1);
   });
@@ -159,9 +159,7 @@ describe('applyCritToDamage', () => {
     [10.4, true, 2, 21],
     [10, true, 3, 30],
   ])('Должен из урона %s (крит: %s, множитель %s) получить %s', (damage, isCrit, multiplier, expected) => {
-    config.CRIT_MULTIPLIER = multiplier;
-
-    expect(applyCritToDamage(damage, isCrit)).toBe(expected);
+    expect(applyCritToDamage({ damage, isCrit, multiplier })).toBe(expected);
   });
 });
 
@@ -200,7 +198,7 @@ describe('predictPosition', () => {
   it('Должен целиться в текущий центр неподвижного врага на полу', () => {
     const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 5, y: 0.4, z: 0 });
 
-    expect(predictPosition({ world, enemy, muzzle: getMuzzle() }).toArray()).toEqual([
+    expect(predictPosition({ world, enemy, muzzle: getMuzzle(), speed: config.PROJECTILE_SPEED }).toArray()).toEqual([
       expect.closeTo(5, 5),
       expect.closeTo(0.4, 5),
       expect.closeTo(0, 5),
@@ -213,7 +211,7 @@ describe('predictPosition', () => {
     // Враг бежит вдоль Z со скоростью 3, пуля летит до него ~1/3 с — смещение по Z ≈ 1.
     enemy.body.setLinvel({ x: 0, y: 0, z: 3 }, true);
 
-    expect(predictPosition({ world, enemy, muzzle: getMuzzle() }).toArray()).toEqual([
+    expect(predictPosition({ world, enemy, muzzle: getMuzzle(), speed: config.PROJECTILE_SPEED }).toArray()).toEqual([
       expect.closeTo(5, 3),
       expect.closeTo(0.4, 3),
       expect.closeTo(1, 3),
@@ -223,13 +221,13 @@ describe('predictPosition', () => {
   it('Должен опускать прогноз падающего врага', () => {
     const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 5, y: 3, z: 0 });
 
-    expect(predictPosition({ world, enemy, muzzle: getMuzzle() }).y).toBeLessThan(3);
+    expect(predictPosition({ world, enemy, muzzle: getMuzzle(), speed: config.PROJECTILE_SPEED }).y).toBeLessThan(3);
   });
 
   it('Должен не опускать прогноз ниже половины роста врага', () => {
     const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 14, y: 1.5, z: 0 });
 
-    expect(predictPosition({ world, enemy, muzzle: getMuzzle() }).y).toBeCloseTo(0.4, 5);
+    expect(predictPosition({ world, enemy, muzzle: getMuzzle(), speed: config.PROJECTILE_SPEED }).y).toBeCloseTo(0.4, 5);
   });
 
   it('Должен целиться в центр врага, стоящего на другом враге, без поправки на падение', async () => {
@@ -245,7 +243,14 @@ describe('predictPosition', () => {
 
     const expectedY = onStack.body.translation().y;
 
-    expect(predictPosition({ world: stack.world, enemy: onStack, muzzle: getMuzzle() }).y).toBeCloseTo(expectedY, 2);
+    const predicted = predictPosition({
+      world: stack.world,
+      enemy: onStack,
+      muzzle: getMuzzle(),
+      speed: config.PROJECTILE_SPEED,
+    });
+
+    expect(predicted.y).toBeCloseTo(expectedY, 2);
   });
 });
 
@@ -274,13 +279,13 @@ describe('runFireTimer', () => {
   });
 
   it('Должен держать отсчёт на нуле, пока стрелять не в кого', () => {
-    expect(runFireTimer({ timer: 0, delta: 1 / 30, fireVolley: (): number => 0 })).toBe(0);
+    expect(runFireTimer({ timer: 0, delta: 1 / 30, interval: 0.5, fireVolley: (): number => 0 })).toBe(0);
   });
 
   it('Должен выпустить один залп, когда цель появилась после ожидания', () => {
     const fireVolley = vi.fn((): number => 1);
 
-    runFireTimer({ timer: 0, delta: 1 / 30, fireVolley });
+    runFireTimer({ timer: 0, delta: 1 / 30, interval: 0.5, fireVolley });
 
     expect(fireVolley).toHaveBeenCalledTimes(1);
   });
@@ -295,7 +300,7 @@ describe('fireProjectiles', () => {
     const projectiles: Projectiles = new Map();
     const targets = [...enemies].map(([handle, enemy]) => ({ handle, enemy }));
 
-    fireProjectiles({ world, scene, entities: projectiles, targets });
+    fireProjectiles({ world, scene, entities: projectiles, targets, stats: getBaseStats() });
 
     expect(projectiles.size).toBe(3);
   });
@@ -305,6 +310,33 @@ describe('fireProjectiles', () => {
     const [projectile] = fireAt(enemy).values();
 
     expect(projectile.body.linvel().x).toBeGreaterThan(14.5);
+  });
+
+  describe('характеристики снаряда', () => {
+    it('Должен умножить урон снаряда на усиление урона', () => {
+      config.PROJECTILE_DAMAGE_MIN = 10;
+      config.PROJECTILE_DAMAGE_MAX = 10;
+
+      const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 10, y: 0.4, z: 0 });
+      const [projectile] = fireAt(enemy, { ...getBaseStats(), damageMultiplier: 1.5, critChance: 0 }).values();
+
+      expect(projectile.damage).toBe(15);
+    });
+
+    it('Должен запустить снаряд со скоростью из характеристик', () => {
+      const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 10, y: 0.4, z: 0 });
+      const [projectile] = fireAt(enemy, { ...getBaseStats(), projectileSpeed: 30 }).values();
+      const { x, y, z } = projectile.body.linvel();
+
+      expect(Math.hypot(x, y, z)).toBeCloseTo(30, 3);
+    });
+
+    it('Должен дать снаряду массу из характеристик', () => {
+      const enemy = addTestEnemy({ world, scene, enemies: new Map(), x: 10, y: 0.4, z: 0 });
+      const [projectile] = fireAt(enemy, { ...getBaseStats(), projectileMass: 0.5, critChance: 0 }).values();
+
+      expect(projectile.body.mass()).toBeCloseTo(0.5, 5);
+    });
   });
 
   it('Должен дать снаряду PROJECTILE_BOUNCES отскоков', () => {

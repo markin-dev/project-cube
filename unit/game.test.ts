@@ -8,6 +8,7 @@ import type { Hud } from '@/hud';
 import { createPlayer } from '@/player';
 import { getPolygonPoints } from '@/polygon';
 import { createSparks } from '@/sparks';
+import { createBonuses, RARITIES, UPGRADE_STATS, type UpgradeStat } from '@/upgrades';
 import type { Wave } from '@/waves';
 import { createTestWorld } from './fixtures';
 
@@ -34,9 +35,20 @@ type TestGame = {
   hud: Record<keyof Hud, Mock>;
   showDamageNumber: Mock;
   onLevelUp: Mock;
+  upgradeUi: Record<'showOffer' | 'hideOffer' | 'setStats', Mock>;
 };
 
-const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> => {
+// Выбор усилений ставит игру на паузу на каждом новом уровне — тестам волн, боя и полигона он мешает,
+// поэтому по умолчанию выключен; тесты усилений включают его явно (isUpgradesEnabled).
+const createTestGame = async ({
+  waves,
+  isUpgradesEnabled = false,
+}: {
+  waves: Wave[];
+  isUpgradesEnabled?: boolean;
+}): Promise<TestGame> => {
+  config.UPGRADES_ENABLED = isUpgradesEnabled;
+
   const { world, eventQueue, scene } = await createTestWorld();
   const hud = {
     setWave: vi.fn(),
@@ -49,6 +61,7 @@ const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> =
   };
   const showDamageNumber = vi.fn();
   const onLevelUp = vi.fn();
+  const upgradeUi = { showOffer: vi.fn(), hideOffer: vi.fn(), setStats: vi.fn() };
 
   const game = createGame({
     world,
@@ -62,12 +75,13 @@ const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> =
     waves,
     startWaveNumber: 1,
     onWaveStart: vi.fn(),
+    upgradeUi,
     onLevelUp,
   });
 
   game.startGame();
 
-  return { game, hud, showDamageNumber, onLevelUp };
+  return { game, hud, showDamageNumber, onLevelUp, upgradeUi };
 };
 
 const runSteps = (game: Game, count: number): void => {
@@ -152,6 +166,28 @@ const countHitsOfOneShot = (testGame: TestGame): number => {
   runSteps(testGame.game, 57);
 
   return testGame.showDamageNumber.mock.calls.length;
+};
+
+// Оставляет в UPGRADE_VALUES только усиление stat с прибавкой amount на всех редкостях, остальные — 0:
+// выбор тогда предсказуем — одна карточка.
+const allowOnlyUpgrade = (stat: UpgradeStat, amount: number): void => {
+  for (const name of UPGRADE_STATS) {
+    for (const rarity of RARITIES) {
+      config.UPGRADE_VALUES[name][rarity] = name === stat ? amount : 0;
+    }
+  }
+};
+
+// Игра с выбором усилений, где первый же убитый враг даёт уровень: база опыта 4 (пороги 4, 11, 21),
+// первая волна — крошка (5 опыта — ровно один уровень). Крошка вылетает за арену на втором шаге — выбор открыт.
+const createGameWithOffer = async (waves: Wave[] = [ONE_TINY_WAVE, ONE_ENEMY_WAVE]): Promise<TestGame> => {
+  config.LEVEL_XP_BASE = 4;
+
+  const testGame = await createTestGame({ waves, isUpgradesEnabled: true });
+
+  clearWave(testGame.game);
+
+  return testGame;
 };
 
 afterEach(() => vi.clearAllMocks());
@@ -605,5 +641,93 @@ describe('отскок снаряда', () => {
     });
 
     expect(countHitsOfOneShot(testGame)).toBe(4);
+  });
+});
+
+describe('усиления', () => {
+  it('Должен открыть выбор усиления на новом уровне', async () => {
+    const { game } = await createGameWithOffer();
+
+    expect(game.state.offer).toHaveLength(config.UPGRADE_CHOICES);
+  });
+
+  it('Должен остановить игру, пока выбор открыт', async () => {
+    const { game } = await createGameWithOffer();
+    const waveTime = game.state.waveTime;
+
+    runSteps(game, 10);
+
+    expect(game.state.waveTime).toBe(waveTime);
+  });
+
+  it('Должен применить выбранное усиление', async () => {
+    const { game } = await createGameWithOffer();
+    const [card] = game.state.offer;
+
+    game.chooseUpgrade(0);
+
+    expect(game.state.bonuses[card.stat]).toBe(card.amount);
+  });
+
+  it('Должен закрыть выбор и продолжить игру после выбора', async () => {
+    const { game } = await createGameWithOffer();
+
+    game.chooseUpgrade(0);
+    runSteps(game, 1);
+
+    expect([game.state.offer.length, game.state.waveTime > 0]).toEqual([0, true]);
+  });
+
+  it('Должен проиграть анимацию уровня только после выбора', async () => {
+    const { game, onLevelUp } = await createGameWithOffer();
+    const callsBeforeChoice = onLevelUp.mock.calls.length;
+
+    game.chooseUpgrade(0);
+
+    expect([callsBeforeChoice, onLevelUp.mock.calls]).toEqual([0, [[2]]]);
+  });
+
+  it('Должен открыть выборы по очереди за несколько уровней сразу', async () => {
+    // Пороги 4 и 11 — опыта обычного врага (20) хватает на два уровня сразу.
+    const { game, upgradeUi } = await createGameWithOffer([ONE_ENEMY_WAVE]);
+
+    game.chooseUpgrade(0);
+
+    expect(upgradeUi.showOffer).toHaveBeenLastCalledWith(
+      expect.objectContaining({ level: 3, left: game.state.pendingChoices }),
+    );
+  });
+
+  it('Должен применять усиления к выстрелам', async () => {
+    // Только урон +100%: урон 10 без критов превращается в 20.
+    allowOnlyUpgrade('damage', 100);
+    config.PROJECTILE_DAMAGE_MIN = 10;
+    config.PROJECTILE_DAMAGE_MAX = 10;
+    config.CRIT_CHANCE = 0;
+
+    const { game, showDamageNumber } = await createGameWithOffer();
+
+    game.chooseUpgrade(0);
+    runUntil({ game, isDone: () => showDamageNumber.mock.calls.length > 0, maxSeconds: 5 });
+
+    expect(showDamageNumber).toHaveBeenCalledWith(expect.objectContaining({ damage: 20 }));
+  });
+
+  it('Должен закрыть выбор без усиления, если выбор выключили', async () => {
+    const { game } = await createGameWithOffer();
+
+    config.UPGRADES_ENABLED = false;
+    runSteps(game, 1);
+
+    expect([game.state.offer.length, game.state.taken.length]).toEqual([0, 0]);
+  });
+
+  it('Должен обнулить усиления при новой игре', async () => {
+    const { game } = await createGameWithOffer();
+
+    game.chooseUpgrade(0);
+    game.startGame();
+
+    expect(game.state.bonuses).toEqual(createBonuses());
   });
 });

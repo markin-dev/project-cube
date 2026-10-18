@@ -23,6 +23,7 @@ import { createSound } from './sound';
 import { createSoundSwitch } from './sound-switch';
 import { createSparks } from './sparks';
 import { createSpeedSwitch } from './speed-switch';
+import { createUpgradeUi } from './upgrade-ui';
 import { WAVES } from './waves';
 
 // Сколько реального времени кадра учитываем максимум, с. После возвращения на вкладку кадр может
@@ -72,9 +73,14 @@ const post = createPost({ renderer, camera });
 // в панели настроек работало без перезагрузки; рисуется вместо игры, пока SCENE_MODE = 'demo'.
 const demoScene = createDemoScene({ camera });
 
-// HUD скрыт сразу, если сохранён в браузере демо-режим: applyLiveConfig вызывается только при
-// правках панели, а состояние может прийти из localStorage ещё до первого изменения.
+// Экран выбора усилений и список статов куба (см. upgrade-ui.ts). Выбор передаём игре — ссылку на неё
+// берём через стрелку: карточки появятся уже после создания игры.
+const upgradeUi = createUpgradeUi({ onPick: (index: number): void => game.chooseUpgrade(index) });
+
+// HUD и интерфейс усилений скрыты сразу, если сохранён в браузере демо-режим: applyLiveConfig вызывается
+// только при правках панели, а состояние может прийти из localStorage ещё до первого изменения.
 hud.setVisible(config.SCENE_MODE !== 'demo');
+upgradeUi.setVisible(config.SCENE_MODE !== 'demo');
 
 // Цепочка пост-обработки держит текстуры в размер экрана — при повороте и ресайзе пересобираем их.
 // Canvas и камера меняют размер в своём слушателе (см. scene.ts), здесь это не нужно.
@@ -95,9 +101,10 @@ const applyLiveConfig = (): void => {
   sound.applyVolume();
   world.gravity = { x: 0, y: -config.GRAVITY, z: 0 };
 
-  // Демо-сцена: свой фон, свет и кучки искр + видимость HUD (скрыт в демо-режиме).
+  // Демо-сцена: свой фон, свет и кучки искр + видимость HUD и интерфейса усилений (скрыты в демо-режиме).
   demoScene.refresh();
   hud.setVisible(config.SCENE_MODE !== 'demo');
+  upgradeUi.setVisible(config.SCENE_MODE !== 'demo');
   syncSimulation();
 };
 
@@ -155,6 +162,7 @@ const game: Game = createGame({
   waves: WAVES,
   startWaveNumber: getStartWaveNumber(),
   onWaveStart: settingsPanel.setCurrentWave,
+  upgradeUi,
   onLevelUp: levelUpEffect.play,
 });
 
@@ -236,8 +244,10 @@ renderer.setAnimationLoop((time: number): void => {
 
   fpsCounter.tick(realDelta);
 
-  // Игровое время кадра — реальное, умноженное на выбранную скорость (0 — пауза).
-  const gameTime = Math.min(realDelta, MAX_FRAME_TIME) * loop.timeScale;
+  // Игровое время кадра — реальное, умноженное на выбранную скорость (0 — пауза). Пока открыт выбор
+  // усиления, время стоит, как на паузе: и шаги игры, и анимации (искры уже стоят вместе с игрой).
+  const isChoosingUpgrade = game.state.offer.length > 0;
+  const gameTime = isChoosingUpgrade ? 0 : Math.min(realDelta, MAX_FRAME_TIME) * loop.timeScale;
 
   // Демо-режим (SCENE_MODE = 'demo', см. demo-scene.ts): игра замирает как на паузе — ни шагов
   // логики, ни синхронизации позиций, ни света от снарядов. Рисуется витрина модельок.

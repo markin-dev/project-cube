@@ -25,6 +25,16 @@ import { buildWaveSchedule, countDueEvents, getWaveScale, type GroupSchedule } f
 import type { Sound } from './sound';
 import { createSpawnPlacer } from './spawn-placement';
 import type { Sparks } from './sparks';
+import type { UpgradeUi } from './upgrade-ui';
+import {
+  applyUpgrade,
+  createBonuses,
+  getCombatStats,
+  rollOffer,
+  type CombatStats,
+  type UpgradeBonuses,
+  type UpgradeCard,
+} from './upgrades';
 import type { Wave } from './waves';
 
 // playing — идёт игра; lost — враг добрался до игрока. Волны идут по кругу бесконечно,
@@ -64,6 +74,16 @@ export type GameState = {
   level: number;
   xp: number;
 
+  // Усиления забега (см. upgrades.ts): сумма взятых прибавок и сами взятые карточки по порядку.
+  bonuses: UpgradeBonuses;
+  taken: UpgradeCard[];
+
+  // Карточки открытого выбора усиления; пусто — выбора нет. Пока выбор открыт, игра стоит.
+  offer: UpgradeCard[];
+
+  // Сколько выборов ещё ждут вместе с открытым: за прыжок на несколько уровней — по выбору на уровень.
+  pendingChoices: number;
+
   // Сколько секунд прошло с начала текущей волны — по нему сверяемся с задержками групп.
   waveTime: number;
 
@@ -96,8 +116,12 @@ export type GameParams = {
   // Вызывается при старте каждой волны со сквозным номером — селект «Волна» в панели показывает текущую.
   onWaveStart: (waveNumber: number) => void;
 
+  // Экран выбора усилений и список статов куба (upgrade-ui.ts).
+  upgradeUi: Pick<UpgradeUi, 'showOffer' | 'hideOffer' | 'setStats'>;
+
   // Вызывается, когда куб получил новый уровень (level — новый): анимация повышения уровня (level-up.ts).
-  // Несколько уровней за раз — один вызов с последним.
+  // С выбором усилений — после выбора («получил силу»), без него — сразу. Несколько уровней за раз без
+  // выбора — один вызов с последним.
   onLevelUp: (level: number) => void;
 };
 
@@ -116,6 +140,9 @@ export type Game = {
   // Полигон вместо игры: арена очищается, встаёт первая сетка врагов (см. polygon.ts).
   // Назад к волнам — startGame.
   startPolygon: () => void;
+
+  // Взять карточку номер index из открытого выбора усиления (с 0). Нет такой карточки — ничего.
+  chooseUpgrade: (index: number) => void;
 
   // Один шаг симуляции длиной delta секунд. После конца игры ничего не делает — всё замирает.
   update: (delta: number) => void;
@@ -149,6 +176,7 @@ export const createGame = ({
   waves,
   startWaveNumber,
   onWaveStart,
+  upgradeUi,
   onLevelUp,
 }: GameParams): Game => {
   const enemies: Enemies = new Map();
@@ -167,6 +195,10 @@ export const createGame = ({
     strength: 1,
     level: 1,
     xp: 0,
+    bonuses: createBonuses(),
+    taken: [],
+    offer: [],
+    pendingChoices: 0,
     waveTime: 0,
     groups: [],
     fireTimer: 0,
@@ -175,8 +207,60 @@ export const createGame = ({
 
   // ─── ПРОКАЧКА ──────────────────────────────────────────────────────────────
 
-  // Начисляет опыт за убитого врага и двигает уровни. Пока уровень прокачивает только куб
-  // (опыт и уровень на виду в HUD, см. hud.setProgress) — сами бонусы уровня добавятся позже.
+  // Уровень, за который сейчас открыт выбор: при очереди из нескольких выборов первый — за самый ранний.
+  const getChoiceLevel = (): number => state.level - state.pendingChoices + 1;
+
+  // Открывает выбор усиления: игра встаёт, на экране карточки (см. upgradeUi.showOffer). Если давать
+  // нечего (все прибавки в панели — 0), выборы сгорают, и игра идёт дальше с анимацией уровня.
+  const openOffer = (): void => {
+    const cards = rollOffer({ bonuses: state.bonuses });
+
+    if (cards.length === 0) {
+      state.pendingChoices = 0;
+      onLevelUp(state.level);
+
+      return;
+    }
+
+    state.offer = cards;
+    upgradeUi.showOffer({ level: getChoiceLevel(), left: state.pendingChoices, cards, bonuses: state.bonuses });
+  };
+
+  // Закрывает выбор без усиления — когда выбор выключили в панели посреди открытого выбора.
+  const dropOffers = (): void => {
+    state.offer = [];
+    state.pendingChoices = 0;
+    upgradeUi.hideOffer();
+    onLevelUp(state.level);
+  };
+
+  const chooseUpgrade = (index: number): void => {
+    const card = state.offer[index];
+
+    if (!card) {
+      return;
+    }
+
+    state.bonuses = applyUpgrade(state.bonuses, card);
+    state.taken = [...state.taken, card];
+    upgradeUi.setStats({ bonuses: state.bonuses, taken: state.taken });
+
+    // Куб «получает силу» — анимация уровня, за который этот выбор.
+    onLevelUp(getChoiceLevel());
+    state.pendingChoices -= 1;
+
+    if (state.pendingChoices > 0) {
+      openOffer();
+
+      return;
+    }
+
+    state.offer = [];
+    upgradeUi.hideOffer();
+  };
+
+  // Начисляет опыт за убитого врага и двигает уровни. Каждый новый уровень — выбор усиления
+  // (UPGRADES_ENABLED): выборы копятся, игра встаёт до последнего. Без выбора — сразу анимация уровня.
   // Опыт сверх порога остаётся: за одну толпу можно перескочить несколько уровней сразу.
   const addExperience = (amount: number): void => {
     const levelBefore = state.level;
@@ -190,8 +274,25 @@ export const createGame = ({
 
     hud.setProgress({ level: state.level, xp: state.xp, needed: needForLevelUp(state.level) });
 
-    if (state.level > levelBefore) {
+    const gained = state.level - levelBefore;
+
+    if (gained === 0) {
+      return;
+    }
+
+    if (!config.UPGRADES_ENABLED) {
       onLevelUp(state.level);
+
+      return;
+    }
+
+    // Новый выбор открываем, только если сейчас открытого нет: иначе уровни просто встают в очередь.
+    const isOfferOpen = state.offer.length > 0;
+
+    state.pendingChoices += gained;
+
+    if (!isOfferOpen) {
+      openOffer();
     }
   };
 
@@ -367,11 +468,12 @@ export const createGame = ({
   // на разных ближайших врагов, которых летящие снаряды ещё не добьют (см. findTargets в projectiles.ts).
   // Отсчёт и перенос остатка между шагами — runFireTimer в projectiles.ts. Возвращает, сколько снарядов
   // выпущено: 0 — стрелять не в кого.
-  const fireVolley = (): number => {
+  // stats — боевые характеристики с усилениями забега (см. getCombatStats).
+  const fireVolley = (stats: CombatStats): number => {
     const targets = findTargets({
       enemies,
       projectiles,
-      count: config.PROJECTILE_COUNT,
+      count: stats.projectileCount,
     });
 
     if (targets.length === 0) {
@@ -379,7 +481,7 @@ export const createGame = ({
     }
 
     // Залп — и один звук выстрела на весь залп.
-    fireProjectiles({ world, scene, entities: projectiles, targets });
+    fireProjectiles({ world, scene, entities: projectiles, targets, stats });
     sound.playShot();
 
     return targets.length;
@@ -499,6 +601,16 @@ export const createGame = ({
       return;
     }
 
+    // Открыт выбор усиления — игра стоит, пока игрок не выберет. Выбор выключили в панели посреди
+    // выбора — он закрывается без усиления, игра идёт дальше.
+    if (state.offer.length > 0) {
+      if (config.UPGRADES_ENABLED) {
+        return;
+      }
+
+      dropOffers();
+    }
+
     // На полигоне враги стоят сеткой: расписания появлений нет, к кубу они не идут.
     const isPolygon = state.mode === 'polygon';
 
@@ -506,7 +618,15 @@ export const createGame = ({
       spawnScheduledEnemies(delta);
     }
 
-    state.fireTimer = runFireTimer({ timer: state.fireTimer, delta, fireVolley });
+    // Боевые характеристики — база из конфига плюс усиления забега, на весь шаг.
+    const stats = getCombatStats(state.bonuses);
+
+    state.fireTimer = runFireTimer({
+      timer: state.fireTimer,
+      delta,
+      interval: stats.fireInterval,
+      fireVolley: (): number => fireVolley(stats),
+    });
 
     if (!isPolygon) {
       moveEnemies({ world, enemies, delta });
@@ -553,8 +673,8 @@ export const createGame = ({
     }
   };
 
-  // Общее начало игры и полигона: арена пустеет (враги, снаряды, призраки, искры), прокачка
-  // и отсчёт до залпа обнуляются, экран поражения прячется.
+  // Общее начало игры и полигона: арена пустеет (враги, снаряды, призраки, искры), прокачка с усилениями
+  // и отсчёт до залпа обнуляются, экраны поражения и выбора прячутся.
   const resetArena = (): void => {
     removeAllEntities({ world, scene, entities: enemies });
     removeAllEntities({ world, scene, entities: projectiles });
@@ -564,8 +684,14 @@ export const createGame = ({
     state.status = 'playing';
     state.level = 1;
     state.xp = 0;
+    state.bonuses = createBonuses();
+    state.taken = [];
+    state.offer = [];
+    state.pendingChoices = 0;
     hud.hideEndScreen();
     hud.setProgress({ level: 1, xp: 0, needed: needForLevelUp(1) });
+    upgradeUi.hideOffer();
+    upgradeUi.setStats({ bonuses: state.bonuses, taken: state.taken });
   };
 
   const startGame = (waveNumber: number = startWaveNumber): void => {
@@ -585,5 +711,5 @@ export const createGame = ({
     startGrid(1);
   };
 
-  return { state, enemies, projectiles, corpses, startGame, startPolygon, update };
+  return { state, enemies, projectiles, corpses, startGame, startPolygon, chooseUpgrade, update };
 };

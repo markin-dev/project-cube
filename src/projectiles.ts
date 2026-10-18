@@ -5,6 +5,7 @@ import { config, MIN_FIRE_INTERVAL } from './config';
 import { isEnemySupported, type Enemies, type Enemy } from './enemies';
 import { removeEntity, type Entities, type Entity, type EntityContext } from './entity';
 import type { GlowSource } from './lighting';
+import type { CombatStats } from './upgrades';
 
 // Снаряд помнит, в какого врага его выпустили, — чтобы не стрелять во врага,
 // которого уже добьют летящие в него снаряды (см. findTargets), и свой урон — он бросается
@@ -20,6 +21,10 @@ export type Projectile = Entity & {
 
   // Сколько отскоков у снаряда ещё осталось (см. PROJECTILE_BOUNCES и bounceProjectile).
   bouncesLeft: number;
+
+  // Скорость снаряда, м/с, — с ней он и отскакивает (см. bounceProjectile). Своя у снаряда, потому что
+  // зависит от усилений забега на момент выстрела.
+  speed: number;
 
   // Враг, в которого снаряд попал последним: сквозь него снаряд пролетает (см. createProjectileHooks),
   // иначе отскок во врага за его спиной упёрся бы в него же. До первого попадания — нет.
@@ -88,7 +93,7 @@ const getIncomingDamageByTarget = (projectiles: Projectiles): Map<ColliderHandle
     new Map<ColliderHandle, number>(),
   );
 
-// Урон снаряда: случайное целое из [PROJECTILE_DAMAGE_MIN, PROJECTILE_DAMAGE_MAX].
+// Базовый урон снаряда: случайное целое из [PROJECTILE_DAMAGE_MIN, PROJECTILE_DAMAGE_MAX] — до усилений.
 // Границы упорядочиваем на месте — если перепутать их в панели, диапазон всё равно будет
 // от меньшего к большему, а не уйдёт в отрицательные числа. Равные значения — урон без рандома.
 // Экспортируются для юнит-тестов (unit/crit-damage.test.ts).
@@ -99,16 +104,23 @@ export const rollDamage = (): number => {
   return Math.floor(low + Math.random() * (high - low + 1));
 };
 
-// Бросок критического попадания: снаряд критический с вероятностью CRIT_CHANCE.
-// Один раз при выстреле (вместе с уроном) — результат запоминается в снаряде (см. Projectile).
-// Экспортируется для юнит-тестов.
-export const isCritRolled = (): boolean => Math.random() < config.CRIT_CHANCE;
+// Бросок критического попадания: снаряд критический с вероятностью chance (CRIT_CHANCE с усилениями,
+// см. CombatStats). Один раз при выстреле (вместе с уроном) — результат запоминается в снаряде
+// (см. Projectile). Экспортируется для юнит-тестов.
+export const isCritRolled = (chance: number): boolean => Math.random() < chance;
 
-// Итоговый урон снаряда: если крит — брошенный урон, увеличенный в CRIT_MULTIPLIER раз.
+// Итоговый урон снаряда: если крит — урон, увеличенный в multiplier раз (CRIT_MULTIPLIER с усилениями).
 // Округляем до целого, потому что здоровье врагов — целые числа (hp).
 // Экспортируется для юнит-тестов.
-export const applyCritToDamage = (damage: number, isCrit: boolean): number =>
-  isCrit ? Math.round(damage * config.CRIT_MULTIPLIER) : damage;
+export const applyCritToDamage = ({
+  damage,
+  isCrit,
+  multiplier,
+}: {
+  damage: number;
+  isCrit: boolean;
+  multiplier: number;
+}): number => (isCrit ? Math.round(damage * multiplier) : damage);
 
 // Выбирает до count целей: ближайших к игроку врагов из тех, кого летящие снаряды ещё не добьют.
 // Без этой проверки куб тратил бы снаряды впустую: снаряд летит до врага больше полсекунды,
@@ -138,11 +150,13 @@ export const findTargets = ({
 
 const UP = new THREE.Vector3(0, 1, 0);
 
-// Куда и в кого целимся: физический мир (для проверки опоры), враг и точка вылета пули.
+// Куда и в кого целимся: физический мир (для проверки опоры), враг, точка вылета пули и её скорость, м/с
+// (от неё зависит время полёта, а значит, и упреждение).
 type AimParams = {
   world: World;
   enemy: Pick<Enemy, 'body' | 'kind'>;
   muzzle: THREE.Vector3;
+  speed: number;
 };
 
 // Где окажется враг к моменту, когда до него долетит пуля, — для упреждения.
@@ -155,12 +169,12 @@ type AimParams = {
 // пули ему за спину.
 // Ниже пола прогноз не опускаем: центр врага не может быть ниже половины его размера.
 // Экспортируется для юнит-тестов (unit/projectile-motion.test.ts).
-export const predictPosition = ({ world, enemy, muzzle }: AimParams): THREE.Vector3 => {
+export const predictPosition = ({ world, enemy, muzzle, speed }: AimParams): THREE.Vector3 => {
   const position = new THREE.Vector3().copy(enemy.body.translation());
   const lineOfFire = position.clone().sub(muzzle);
 
   // Время полёта пули до врага. По пути враг сместится немного, и на время полёта это почти не влияет.
-  const flightTime = (lineOfFire.length() / config.PROJECTILE_SPEED) * config.PROJECTILE_LEAD;
+  const flightTime = (lineOfFire.length() / speed) * config.PROJECTILE_LEAD;
 
   lineOfFire.normalize();
 
@@ -180,8 +194,9 @@ export const predictPosition = ({ world, enemy, muzzle }: AimParams): THREE.Vect
 
 // Точка прицела: прогноз центра врага плюс смещение поперёк выстрела — постоянно вверх
 // и случайно по кругу вокруг этой точки (см. PROJECTILE_AIM_OFFSET_UP и PROJECTILE_AIM_SPREAD в config.ts).
-const getAimPoint = ({ world, enemy, muzzle }: AimParams): THREE.Vector3 => {
-  const center = predictPosition({ world, enemy, muzzle });
+const getAimPoint = (params: AimParams): THREE.Vector3 => {
+  const { enemy, muzzle } = params;
+  const center = predictPosition(params);
   const direction = center.clone().sub(muzzle).normalize();
 
   // Два направления поперёк выстрела: «вбок» — перпендикуляр к выстрелу и к вертикали,
@@ -216,16 +231,19 @@ const getAimPoint = ({ world, enemy, muzzle }: AimParams): THREE.Vector3 => {
 // поэтому темп не зависит от длины шага — частоты кадров и скорости игры. Пауза короче шага —
 // несколько залпов за шаг. fireVolley возвращает, сколько снарядов выпущено; 0 — стрелять не в кого:
 // тогда отсчёт замирает на нуле, и залп случится, как только цель появится, — без накопленной очереди.
+// interval — пауза между залпами (FIRE_INTERVAL с усилениями, см. CombatStats); не короче MIN_FIRE_INTERVAL.
 export const runFireTimer = ({
   timer,
   delta,
+  interval: wantedInterval,
   fireVolley,
 }: {
   timer: number;
   delta: number;
+  interval: number;
   fireVolley: () => number;
 }): number => {
-  const interval = Math.max(config.FIRE_INTERVAL, MIN_FIRE_INTERVAL);
+  const interval = Math.max(wantedInterval, MIN_FIRE_INTERVAL);
 
   const fireDueVolleys = (left: number): number => {
     if (left > 0) {
@@ -240,25 +258,33 @@ export const runFireTimer = ({
 
 // Выпускает один снаряд из центра куба-игрока в точку прицела (getAimPoint) — по прямой,
 // в любую сторону, хоть вверх, если враг подлетел. Точка прицела своя у каждого снаряда.
+// stats — боевые характеристики с усилениями забега: урон, крит, масса, скорость, отскоки.
 const fireOneProjectile = ({
   world,
   scene,
   entities,
   target,
-}: EntityContext<Projectile> & { target: Target }): void => {
+  stats,
+}: EntityContext<Projectile> & { target: Target; stats: CombatStats }): void => {
   const muzzle = new THREE.Vector3(0, config.PLAYER_SIZE / 2, 0);
-  const direction = getAimPoint({ world, enemy: target.enemy, muzzle }).sub(muzzle);
+  const speed = stats.projectileSpeed;
+  const direction = getAimPoint({ world, enemy: target.enemy, muzzle, speed }).sub(muzzle);
   const size = config.PROJECTILE_SIZE;
 
-  // Крит и урон бросаются один раз при выстреле (см. Projectile.isCrit).
-  const isCrit = isCritRolled();
-  const damage = applyCritToDamage(rollDamage(), isCrit);
+  // Крит и урон бросаются один раз при выстреле (см. Projectile.isCrit): базовый урон × усиление урона,
+  // у крита — ещё и × множитель крита.
+  const isCrit = isCritRolled(stats.critChance);
+  const damage = applyCritToDamage({
+    damage: Math.round(rollDamage() * stats.damageMultiplier),
+    isCrit,
+    multiplier: stats.critMultiplier,
+  });
 
   if (direction.lengthSq() === 0) {
     return;
   }
 
-  const velocity = direction.normalize().multiplyScalar(config.PROJECTILE_SPEED);
+  const velocity = direction.normalize().multiplyScalar(speed);
 
   // Скорость задаём один раз при выстреле. setGravityScale(0) — гравитация на пулю не действует:
   // она летит по прямой, как очень быстрая пуля, у которой падение на таком расстоянии незаметно.
@@ -281,7 +307,7 @@ const fireOneProjectile = ({
     RAPIER.ColliderDesc.cuboid(size / 2, size / 2, size / 2)
       // Крит-пуля тяжелее в CRIT_MASS_MULTIPLIER раз: при той же скорости она передаёт врагу
       // больший импульс «масса × скорость», и движок сам сильнее его отбрасывает/раскачивает.
-      .setMass(isCrit ? config.PROJECTILE_MASS * config.CRIT_MASS_MULTIPLIER : config.PROJECTILE_MASS)
+      .setMass(isCrit ? stats.projectileMass * config.CRIT_MASS_MULTIPLIER : stats.projectileMass)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
       // FILTER_CONTACT_PAIRS — перед расчётом каждого контакта снаряда Rapier спрашивает хук
       // filterContactPair (см. createProjectileHooks): так отскочивший снаряд пролетает сквозь врага,
@@ -297,24 +323,32 @@ const fireOneProjectile = ({
 
   mesh.position.copy(body.translation());
   scene.add(mesh);
-  // Отскоки, как урон и крит, снаряд несёт с собой с момента выстрела.
-  const bouncesLeft = Math.max(0, Math.floor(config.PROJECTILE_BOUNCES));
 
-  entities.set(collider.handle, { body, object: mesh, targetHandle: target.handle, damage, isCrit, bouncesLeft });
+  // Отскоки и скорость, как урон и крит, снаряд несёт с собой с момента выстрела.
+  entities.set(collider.handle, {
+    body,
+    object: mesh,
+    targetHandle: target.handle,
+    damage,
+    isCrit,
+    bouncesLeft: stats.bounces,
+    speed,
+  });
 };
 
 // Выпускает залп: по одному снаряду на каждую цель из targets (см. findTargets) — снаряды летят
-// в РАЗНЫХ врагов. Целей меньше, чем config.PROJECTILE_COUNT, — залп состоит ровно из стольких
-// снарядов, сколько целей: по одному на каждого противника, в пустоту не стреляем.
+// в РАЗНЫХ врагов. Целей меньше, чем снарядов в залпе (CombatStats.projectileCount), — залп состоит ровно
+// из стольких снарядов, сколько целей: по одному на каждого противника, в пустоту не стреляем.
 // Каждый снаряд целится в свою случайную точку прицела своего врага (см. getAimPoint).
 export const fireProjectiles = ({
   world,
   scene,
   entities,
   targets,
-}: EntityContext<Projectile> & { targets: Target[] }): void => {
+  stats,
+}: EntityContext<Projectile> & { targets: Target[]; stats: CombatStats }): void => {
   for (const target of targets) {
-    fireOneProjectile({ world, scene, entities, target });
+    fireOneProjectile({ world, scene, entities, target, stats });
   }
 };
 
@@ -345,7 +379,7 @@ export const findBounceTarget = ({
     .sort((first, second) => first.distance - second.distance)[0]?.target;
 
 // Отскок после попадания во врага hitHandle: если отскоки остались и есть в кого, снаряд летит из точки
-// удара в нового врага — с той же скоростью, в точку прицела (getAimPoint: упреждение, смещение вверх,
+// удара в нового врага — со своей скоростью (Projectile.speed), в точку прицела (getAimPoint: упреждение, смещение вверх,
 // разброс), сквозь только что задетого. Урон, крит и масса прежние. Цель меняется — прицел куба
 // учитывает урон этого снаряда как летящий в нового врага (см. findTargets).
 // Возвращает true, если снаряд отскочил; false — снаряд пора убрать (вызывающий код удаляет его сам).
@@ -372,14 +406,14 @@ export const bounceProjectile = ({
     return false;
   }
 
-  const direction = getAimPoint({ world, enemy: target.enemy, muzzle }).sub(muzzle);
+  const direction = getAimPoint({ world, enemy: target.enemy, muzzle, speed: projectile.speed }).sub(muzzle);
 
   if (direction.lengthSq() === 0) {
     return false;
   }
 
   // Физика уже отразила снаряд от врага и раскрутила его — задаём скорость заново, вращение гасим.
-  const velocity = direction.normalize().multiplyScalar(config.PROJECTILE_SPEED);
+  const velocity = direction.normalize().multiplyScalar(projectile.speed);
 
   projectile.body.setLinvel(velocity, true);
   projectile.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
