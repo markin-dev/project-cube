@@ -1,5 +1,6 @@
 // HUD (heads-up display) — надписи поверх игры. Это обычные HTML-элементы над canvas:
 // текст в HTML делать намного проще, чем рисовать его в 3D-сцене.
+import { IS_DEBUG } from './debug';
 import { keepAboveSettingsPanel } from './layout';
 
 type WaveInfo = {
@@ -49,7 +50,14 @@ export type Hud = {
   setVisible: (visible: boolean) => void;
 };
 
-export const createHud = (): Hud => {
+// Что отдаёт createHud: сам HUD и его левый верхний блок (номер волны) — под ним свой список статов
+// показывает интерфейс усилений (upgrade-ui.ts). Блок нужен только при сборке интерфейса, игре он не нужен,
+// поэтому в тип Hud он не входит.
+type CreatedHud = Hud & {
+  topLeft: HTMLDivElement;
+};
+
+export const createHud = (): CreatedHud => {
   // Номер волны и под ним счётчик групп — в левом верхнем углу (на полигоне — номер сетки и живые враги).
   // position: fixed — элемент привязан к окну и лежит поверх canvas.
   // pointer-events: none — касания проходят сквозь надпись к тому, что под ней.
@@ -66,10 +74,16 @@ export const createHud = (): Hud => {
   `;
 
   // Две строки — отдельные элементы, чтобы номер группы обновлялся, не трогая остальное.
+  // Строка группы — отладочная (см. debug.ts): игроку счётчик групп мало что говорит. Без отладки её нет
+  // на странице, а setGroup пишет в неё впустую.
   const waveLine = document.createElement('div');
   const groupLine = document.createElement('div');
   groupLine.style.cssText = 'font-size: 16px;';
-  waveLabel.append(waveLine, groupLine);
+  waveLabel.append(waveLine);
+
+  if (IS_DEBUG) {
+    waveLabel.append(groupLine);
+  }
 
   // Полоса опыта — внизу по центру: уровень куба, сама полоса и цифры «сколько / сколько нужно».
   // z-index: 2 — как у переключателя скорости: полоса видна и поверх экрана поражения.
@@ -192,5 +206,5 @@ export const createHud = (): Hud => {
     applyEndScreen();
   };
 
-  return { setWave, setGroup, setPolygon, setProgress, showEndScreen, hideEndScreen, setVisible };
+  return { setWave, setGroup, setPolygon, setProgress, showEndScreen, hideEndScreen, setVisible, topLeft: waveLabel };
 };

@@ -18,8 +18,10 @@ export default defineConfig({
   // «обнаруживает» их уже во время тестов, перестраивает зависимости и перезагружает страницу —
   // vitest ловит это как «unexpectedly reloaded» и падает по таймауту. Перечисленные здесь
   // зависимости оптимизируются заранее, до старта тестов.
+  // lil-gui — по той же причине: панель настроек грузится динамическим import() (см. «ОТЛАДКА» в main.ts).
   optimizeDeps: {
     include: [
+      'lil-gui',
       'three/examples/jsm/postprocessing/EffectComposer.js',
       'three/examples/jsm/postprocessing/OutputPass.js',
       'three/examples/jsm/postprocessing/RenderPass.js',

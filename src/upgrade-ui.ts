@@ -2,8 +2,8 @@
 // как HUD (hud.ts).
 //   Экран выбора — затемнение, заголовок «Уровень N — выбери усиление» и карточки: редкость (цвет рамки
 //     и свечение), название, прибавка и «было → станет». Выбор — клик/касание или клавиша 1…9.
-//   Список статов — слева под номером волны: каждый стат куба с текущим значением и цветными точками
-//     взятых усилений (цвет точки — редкость карточки).
+//   Список статов — слева под номером волны (в левом верхнем блоке HUD, см. createHud): каждый стат куба
+//     с текущим значением и цветными точками взятых усилений (цвет точки — редкость карточки).
 // Сама логика (что выпало, что взято, пауза) — в game.ts; сюда приходят только данные для показа.
 import {
   describeCard,
@@ -168,18 +168,13 @@ const STYLES = `
   }
 
   .upgrade-stats {
-    position: fixed;
-    top: 76px;
-    left: 16px;
+    margin-top: 12px;
     display: grid;
     grid-template-columns: auto auto auto;
     column-gap: 8px;
     row-gap: 2px;
     align-items: center;
-    color: white;
-    font: 12px system-ui, sans-serif;
-    pointer-events: none;
-    user-select: none;
+    font: normal 12px system-ui, sans-serif;
   }
 
   .upgrade-stats__name {
@@ -243,8 +238,16 @@ const createElement = ({ className, text = '' }: { className: string; text?: str
 const isTypingTarget = (target: EventTarget | null): boolean =>
   target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement;
 
-// Создаёт интерфейс. onPick(index) — игрок выбрал карточку номер index (с 0).
-export const createUpgradeUi = ({ onPick }: { onPick: (index: number) => void }): UpgradeUi => {
+// Создаёт интерфейс. onPick(index) — игрок выбрал карточку номер index (с 0). statsParent — куда положить
+// список статов: левый верхний блок HUD (под номером волны). Блок уже стоит на месте, задаёт цвет и сам
+// не ловит касания — список встаёт сразу под тем, что в блоке есть.
+export const createUpgradeUi = ({
+  onPick,
+  statsParent,
+}: {
+  onPick: (index: number) => void;
+  statsParent: HTMLElement;
+}): UpgradeUi => {
   const style = document.createElement('style');
 
   style.textContent = STYLES;
@@ -256,7 +259,8 @@ export const createUpgradeUi = ({ onPick }: { onPick: (index: number) => void })
   const statsList = createElement({ className: 'upgrade-stats' });
 
   overlay.append(title, cardsRow);
-  document.body.append(overlay, statsList);
+  document.body.append(overlay);
+  statsParent.append(statsList);
 
   const state = { isVisible: true, isOfferShown: false, cardsCount: 0 };
 

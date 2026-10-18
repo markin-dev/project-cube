@@ -109,9 +109,8 @@ export type GameParams = {
   hud: Hud;
   showDamageNumber: ShowDamageNumber;
 
-  // Список волн и с какой начинать (сквозной номер, с 1; больше длины списка — уже поздняя волна).
+  // Список волн: игра начинается с первой, дальше составы идут по кругу (см. startWave).
   waves: Wave[];
-  startWaveNumber: number;
 
   // Вызывается при старте каждой волны со сквозным номером — селект «Волна» в панели показывает текущую.
   onWaveStart: (waveNumber: number) => void;
@@ -134,7 +133,7 @@ export type Game = {
   corpses: Corpses;
 
   // Новая игра без перезагрузки страницы: арена очищается, игра начинается с волны waveNumber
-  // (сквозной номер; по умолчанию — со стартовой).
+  // (сквозной номер; по умолчанию — с первой, другой номер — выбор волны в отладочной панели).
   startGame: (waveNumber?: number) => void;
 
   // Полигон вместо игры: арена очищается, встаёт первая сетка врагов (см. polygon.ts).
@@ -174,7 +173,6 @@ export const createGame = ({
   hud,
   showDamageNumber,
   waves,
-  startWaveNumber,
   onWaveStart,
   upgradeUi,
   onLevelUp,
@@ -190,7 +188,7 @@ export const createGame = ({
   // Объект один на всю игру, меняем его поля. Настоящие стартовые значения выставляет startGame.
   const state: GameState = {
     mode: 'waves',
-    waveNumber: startWaveNumber,
+    waveNumber: 1,
     gridSize: 0,
     strength: 1,
     level: 1,
@@ -694,7 +692,7 @@ export const createGame = ({
     upgradeUi.setStats({ bonuses: state.bonuses, taken: state.taken });
   };
 
-  const startGame = (waveNumber: number = startWaveNumber): void => {
+  const startGame = (waveNumber: number = 1): void => {
     resetArena();
     state.mode = 'waves';
     state.gridSize = 0;

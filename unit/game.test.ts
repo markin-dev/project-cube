@@ -73,7 +73,6 @@ const createTestGame = async ({
     hud,
     showDamageNumber,
     waves,
-    startWaveNumber: 1,
     onWaveStart: vi.fn(),
     upgradeUi,
     onLevelUp,

@@ -1,13 +1,14 @@
 // Точка входа: собирает физику, сцену и интерфейс, создаёт игру (game.ts), слушает ввод
 // и крутит цикл кадров. Сама игровая логика — волны, стрельба, столкновения — в game.ts.
+// Отладочный интерфейс (панель настроек, демо-сцена, счётчик FPS) подключается только в отладочном
+// режиме — см. debug.ts и раздел «ОТЛАДКА» ниже.
 import * as THREE from 'three';
 import { config } from './config';
 import { refreshCorpseLook } from './corpses';
 import { createDamageNumbers } from './damage-numbers';
-import { createDemoScene } from './demo-scene';
+import { IS_DEBUG } from './debug';
 import { refreshEnemyColors, turnHpBarsToCamera } from './enemies';
 import { syncCubeRotations, syncPositions } from './entity';
-import { createFpsCounter } from './fps-counter';
 import { createGame, type Game } from './game';
 import { refreshHpBarColors } from './hp-bar';
 import { createHud } from './hud';
@@ -18,7 +19,6 @@ import { createPlayer, refreshPlayerColor } from './player';
 import { createPost } from './post';
 import { getGlowSources, refreshProjectileColor } from './projectiles';
 import { createScene, refreshSceneLook } from './scene';
-import { createSettingsPanel } from './settings-panel';
 import { createSound } from './sound';
 import { createSoundSwitch } from './sound-switch';
 import { createSparks } from './sparks';
@@ -35,15 +35,21 @@ const MAX_FRAME_TIME = 0.1;
 // попадания. При ускорении игровое время кадра делится на несколько шагов не длиннее этого.
 const MAX_TIMESTEP = 1 / 30;
 
-// С какой волны начинать (сквозной номер, с 1). Для отладки волн её можно задать в адресе: ?wave=3
-// начнёт игру с третьей волны, ?wave=30 — сразу с поздней (составы по кругу, сила по номеру).
-// Нет параметра или он неправильный — начинаем с первой.
-const getStartWaveNumber = (): number => {
-  const wave = Number(new URLSearchParams(window.location.search).get('wave'));
-  const isValidWave = Number.isInteger(wave) && wave >= 1;
+// ─── ОТЛАДКА ─────────────────────────────────────────────────────────────────
 
-  return isValidWave ? wave : 1;
-};
+// Отладочные модули: панель настроек (с пресетами, выбором волны, сценами), демо-витрина и счётчик FPS.
+// Грузятся динамическим import() и только в отладочном режиме (?debug на dev-сервере, см. debug.ts).
+// import.meta.env.DEV написан прямо здесь, а не только внутри IS_DEBUG: в прод-сборке Vite заменяет его
+// на false в этом модуле, сборщик вырезает ветку — и этих модулей (вместе с lil-gui) в бандле нет вовсе.
+// Без отладки всё, что с ними связано, пропускается через ?. — панели, витрины и счётчика просто нет.
+const debugModules =
+  import.meta.env.DEV && IS_DEBUG
+    ? {
+        ...(await import('./settings-panel')),
+        ...(await import('./demo-scene')),
+        ...(await import('./fps-counter')),
+      }
+    : undefined;
 
 // ─── СОЗДАНИЕ МИРА ───────────────────────────────────────────────────────────
 
@@ -69,13 +75,16 @@ const sound = createSound();
 // Сцену каждый кадр передаёт сам: игра или демо-витрина (см. SCENE_MODE).
 const post = createPost({ renderer, camera });
 
-// Демо-сцена — витрина всех модельок игры (см. demo-scene.ts). Создаётся сразу, чтобы переключение
-// в панели настроек работало без перезагрузки; рисуется вместо игры, пока SCENE_MODE = 'demo'.
-const demoScene = createDemoScene({ camera });
+// Демо-сцена — витрина всех модельок игры (см. demo-scene.ts), только в отладке. Создаётся сразу, чтобы
+// переключение в панели настроек работало без перезагрузки; рисуется вместо игры, пока SCENE_MODE = 'demo'.
+const demoScene = debugModules?.createDemoScene({ camera });
 
-// Экран выбора усилений и список статов куба (см. upgrade-ui.ts). Выбор передаём игре — ссылку на неё
-// берём через стрелку: карточки появятся уже после создания игры.
-const upgradeUi = createUpgradeUi({ onPick: (index: number): void => game.chooseUpgrade(index) });
+// Экран выбора усилений и список статов куба под номером волны (см. upgrade-ui.ts). Выбор передаём
+// игре — ссылку на неё берём через стрелку: карточки появятся уже после создания игры.
+const upgradeUi = createUpgradeUi({
+  onPick: (index: number): void => game.chooseUpgrade(index),
+  statsParent: hud.topLeft,
+});
 
 // HUD и интерфейс усилений скрыты сразу, если сохранён в браузере демо-режим: applyLiveConfig вызывается
 // только при правках панели, а состояние может прийти из localStorage ещё до первого изменения.
@@ -102,7 +111,7 @@ const applyLiveConfig = (): void => {
   world.gravity = { x: 0, y: -config.GRAVITY, z: 0 };
 
   // Демо-сцена: свой фон, свет и кучки искр + видимость HUD и интерфейса усилений (скрыты в демо-режиме).
-  demoScene.refresh();
+  demoScene?.refresh();
   hud.setVisible(config.SCENE_MODE !== 'demo');
   upgradeUi.setVisible(config.SCENE_MODE !== 'demo');
   syncSimulation();
@@ -122,12 +131,12 @@ const syncSimulation = (): void => {
   }
 };
 
-// Панель настроек. onStartWave — ручной запуск волны из раздела «Волны (отладка)»: ссылку на игру
+// Панель настроек — только в отладке. onStartWave — ручной запуск волны из раздела «Волны (отладка)»: ссылку на игру
 // берём через стрелку, панель вызовет её уже после создания игры. На полигоне волн нет — выбор волны
 // там ничего не делает. onRebuildPolygon — кнопка «Пересоздать сетку»: действует только на полигоне.
 // onPresetLoad — загружен пресет: значения поменялись разом, и то, что идёт на арене, начинается заново —
 // иначе параметры «· волна», «· новые» и «· сетка» применились бы не сразу. sound — раздел «Звук»: выбор наборов.
-const settingsPanel = createSettingsPanel({
+const settingsPanel = debugModules?.createSettingsPanel({
   onChange: applyLiveConfig,
   onStartWave: (waveNumber: number): void => {
     if (config.SCENE_MODE !== 'polygon') {
@@ -160,8 +169,7 @@ const game: Game = createGame({
   hud,
   showDamageNumber: createDamageNumbers({ camera }),
   waves: WAVES,
-  startWaveNumber: getStartWaveNumber(),
-  onWaveStart: settingsPanel.setCurrentWave,
+  onWaveStart: (waveNumber: number): void => settingsPanel?.setCurrentWave(waveNumber),
   upgradeUi,
   onLevelUp: levelUpEffect.play,
 });
@@ -181,13 +189,13 @@ const speedSwitch = createSpeedSwitch({
 // Кнопка звука — в том же ряду, что и кнопки скорости, справа от них.
 createSoundSwitch({ container: speedSwitch.container, sound });
 
-// Счётчик FPS в правом нижнем углу (fps-counter.ts).
-const fpsCounter = createFpsCounter();
+// Счётчик FPS в правом нижнем углу (fps-counter.ts) — только в отладке.
+const fpsCounter = debugModules?.createFpsCounter();
 
 // Проверка «событие произошло на панели настроек или в ряду скорости и звука?» — такие клики
 // и нажатия не должны перезапускать игру.
 const isUiTarget = (target: EventTarget | null): boolean =>
-  settingsPanel.isPanelTarget(target) || speedSwitch.isSwitchTarget(target);
+  (settingsPanel?.isPanelTarget(target) ?? false) || speedSwitch.isSwitchTarget(target);
 
 // После конца игры клик или пробел начинают её заново со стартовой волны.
 // В демо-режиме (витрина модельок) клики и пробел игру не перезапускают: сцена статична,
@@ -242,7 +250,7 @@ renderer.setAnimationLoop((time: number): void => {
   // лаг или возврат на вкладку должны быть видны как просадка, а не замаскированы ограничителем.
   const realDelta = timer.getDelta();
 
-  fpsCounter.tick(realDelta);
+  fpsCounter?.tick(realDelta);
 
   // Игровое время кадра — реальное, умноженное на выбранную скорость (0 — пауза). Пока открыт выбор
   // усиления, время стоит, как на паузе: и шаги игры, и анимации (искры уже стоят вместе с игрой).
@@ -250,8 +258,10 @@ renderer.setAnimationLoop((time: number): void => {
   const gameTime = isChoosingUpgrade ? 0 : Math.min(realDelta, MAX_FRAME_TIME) * loop.timeScale;
 
   // Демо-режим (SCENE_MODE = 'demo', см. demo-scene.ts): игра замирает как на паузе — ни шагов
-  // логики, ни синхронизации позиций, ни света от снарядов. Рисуется витрина модельок.
-  const isDemoMode = config.SCENE_MODE === 'demo';
+  // логики, ни синхронизации позиций, ни света от снарядов. Рисуется витрина модельок. Без отладки
+  // витрины нет — и демо-режима тоже.
+  const demoView = config.SCENE_MODE === 'demo' ? demoScene : undefined;
+  const isDemoMode = demoView !== undefined;
 
   // На ускорении игровое время кадра длиннее допустимого шага физики — делим его на несколько равных
   // шагов не длиннее MAX_TIMESTEP и на каждом целиком обновляем игру. Так попадания и физика работают
@@ -283,7 +293,7 @@ renderer.setAnimationLoop((time: number): void => {
     ]);
   }
 
-  post.render(isDemoMode ? demoScene.scene : scene);
+  post.render(demoView?.scene ?? scene);
 });
 
 // ─── ТЕСТОВЫЙ ДОСТУП ─────────────────────────────────────────────────────────

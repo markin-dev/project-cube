@@ -1,9 +1,13 @@
 // Переключатель скорости игры — кнопки в левом нижнем углу, отдельно от панели настроек.
 // Сама скорость применяется в игровом цикле (main.ts): игровое время кадра умножается на выбранную скорость.
+import { IS_DEBUG } from './debug';
 import { keepAboveSettingsPanel } from './layout';
 
-// Скорости на выбор: 0 — пауза, 1 — обычная, больше — ускорение, меньше — замедление.
-const SPEEDS = [0, 0.5, 1, 2, 4, 8, 16];
+// Скорости на выбор: 0 — пауза, 1 — обычная, больше — ускорение, меньше — замедление. ×8 и ×16 — для
+// отладки (прогнать волны и полигон): их видно только в отладочном режиме (см. debug.ts).
+const GAME_SPEEDS = [0, 0.5, 1, 2, 4];
+const DEBUG_SPEEDS = [8, 16];
+const SPEEDS = IS_DEBUG ? [...GAME_SPEEDS, ...DEBUG_SPEEDS] : GAME_SPEEDS;
 const DEFAULT_SPEED = 1;
 
 const getSpeedLabel = (speed: number): string => (speed === 0 ? '⏸' : `×${speed}`);
