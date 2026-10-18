@@ -93,6 +93,9 @@ type Section = {
 
   // Добавить в конец раздела кнопку «Пересоздать сетку» полигона (см. createSettingsPanel).
   isWithPolygonRebuild?: boolean;
+
+  // Добавить в конец раздела кнопку «Показать анимацию уровня» (см. createSettingsPanel).
+  isWithLevelUpPreview?: boolean;
 };
 
 // Названия типов врагов для папок панели и селекта типа на полигоне. Record с ключом EnemyKindName:
@@ -181,7 +184,14 @@ export const SECTIONS: Section[] = [
     settings: [
       // Порог уровня: need(level) = round(base × level^1.5). Опыт за врага — в папках типов («Опыт»).
       { key: 'LEVEL_XP_BASE', label: 'Опыт: база уровня', min: 5, max: 500, step: 5 },
+      // Анимация повышения уровня (см. level-up.ts): читается каждый кадр. Цвет — в разделе «Цвета».
+      { key: 'LEVEL_UP_DURATION', label: 'Анимация уровня: длительность, с', min: 0.2, max: 4, step: 0.05 },
+      { key: 'LEVEL_UP_GLOW', label: 'Анимация уровня: свечение', min: 0, max: 10, step: 0.1 },
+      { key: 'LEVEL_UP_PULSE', label: 'Анимация уровня: пульс куба', min: 0, max: 1, step: 0.05 },
+      { key: 'LEVEL_UP_RING_RADIUS', label: 'Анимация уровня: радиус кольца, м', min: 0, max: 15, step: 0.5 },
+      { key: 'LEVEL_UP_BEAM_HEIGHT', label: 'Анимация уровня: высота столба, м', min: 0, max: 20, step: 0.5 },
     ],
+    isWithLevelUpPreview: true,
   },
   {
     title: 'Враги',
@@ -299,6 +309,7 @@ export const COLOR_SETTINGS: Array<{ key: ColorKey; label: string }> = [
   { key: 'SPARKS_CRIT_COLOR', label: 'Искры (крит)' },
   { key: 'CORPSE_COLOR', label: 'Призраки' },
   { key: 'DEATH_WALL_COLOR', label: 'Граница арены' },
+  { key: 'LEVEL_UP_COLOR', label: 'Повышение уровня' },
   { key: 'SUN_COLOR', label: 'Свет: солнце' },
   { key: 'HEMISPHERE_SKY_COLOR', label: 'Свет: небо' },
   { key: 'HEMISPHERE_GROUND_COLOR', label: 'Свет: земля' },
@@ -586,18 +597,21 @@ const addSoundSection = (gui: GUI, sound: Sound): void => {
 // onChange вызывается при каждом изменении — там игра применяет то, что не читается само (цвета, гравитация).
 // onStartWave(waveNumber) — запустить волну со сквозным номером waveNumber вручную (отладка, см. addWavePicker).
 // onRebuildPolygon — кнопка «Пересоздать сетку» раздела «Полигон»: построить сетку заново по текущим параметрам.
+// onPreviewLevelUp — кнопка «Показать анимацию уровня» раздела «Прокачка»: проиграть её без набора опыта.
 // onPresetLoad — загружен пресет (или отменены правки): значения поменялись разом, игру пора начать заново.
 // sound — звук игры: раздел «Звук» читает и меняет его наборы (см. addSoundSection).
 export const createSettingsPanel = ({
   onChange,
   onStartWave,
   onRebuildPolygon,
+  onPreviewLevelUp,
   onPresetLoad,
   sound,
 }: {
   onChange: () => void;
   onStartWave: (waveNumber: number) => void;
   onRebuildPolygon: () => void;
+  onPreviewLevelUp: () => void;
   onPresetLoad: () => void;
   sound: Sound;
 }): SettingsPanel => {
@@ -669,7 +683,16 @@ export const createSettingsPanel = ({
   // Дальше раздел отладки — он нужен чаще всего, чтобы не листать длинный список параметров.
   const setCurrentWave = addWavePicker(gui, onStartWave);
 
-  for (const { title, settings, booleans = [], selects = [], isWithEnemyKinds, isWithPolygonRebuild } of SECTIONS) {
+  for (const section of SECTIONS) {
+    const {
+      title,
+      settings,
+      booleans = [],
+      selects = [],
+      isWithEnemyKinds,
+      isWithPolygonRebuild,
+      isWithLevelUpPreview,
+    } = section;
     const folder = gui.addFolder(title);
 
     for (const { key, label, min, max, step, apply = 'now' } of settings) {
@@ -694,6 +717,11 @@ export const createSettingsPanel = ({
     // не считается.
     if (isWithPolygonRebuild) {
       folder.add({ rebuild: onRebuildPolygon }, 'rebuild').name('Пересоздать сетку');
+    }
+
+    // Тоже действие: проиграть анимацию уровня, чтобы подобрать её параметры, не набирая опыт.
+    if (isWithLevelUpPreview) {
+      folder.add({ preview: onPreviewLevelUp }, 'preview').name('Показать анимацию уровня');
     }
   }
 

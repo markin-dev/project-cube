@@ -95,6 +95,10 @@ export type GameParams = {
 
   // Вызывается при старте каждой волны со сквозным номером — селект «Волна» в панели показывает текущую.
   onWaveStart: (waveNumber: number) => void;
+
+  // Вызывается, когда куб получил новый уровень (level — новый): анимация повышения уровня (level-up.ts).
+  // Несколько уровней за раз — один вызов с последним.
+  onLevelUp: (level: number) => void;
 };
 
 export type Game = {
@@ -145,6 +149,7 @@ export const createGame = ({
   waves,
   startWaveNumber,
   onWaveStart,
+  onLevelUp,
 }: GameParams): Game => {
   const enemies: Enemies = new Map();
   const projectiles: Projectiles = new Map();
@@ -174,6 +179,8 @@ export const createGame = ({
   // (опыт и уровень на виду в HUD, см. hud.setProgress) — сами бонусы уровня добавятся позже.
   // Опыт сверх порога остаётся: за одну толпу можно перескочить несколько уровней сразу.
   const addExperience = (amount: number): void => {
+    const levelBefore = state.level;
+
     state.xp += amount;
 
     while (state.xp >= needForLevelUp(state.level)) {
@@ -182,6 +189,10 @@ export const createGame = ({
     }
 
     hud.setProgress({ level: state.level, xp: state.xp, needed: needForLevelUp(state.level) });
+
+    if (state.level > levelBefore) {
+      onLevelUp(state.level);
+    }
   };
 
   // ─── ПОЛИГОН ───────────────────────────────────────────────────────────────

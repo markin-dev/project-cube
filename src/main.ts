@@ -11,6 +11,7 @@ import { createFpsCounter } from './fps-counter';
 import { createGame, type Game } from './game';
 import { refreshHpBarColors } from './hp-bar';
 import { createHud } from './hud';
+import { createLevelUpEffect } from './level-up';
 import { setGlowLights, MAX_GLOW_LIGHTS } from './lighting';
 import { createPhysics } from './physics';
 import { createPlayer, refreshPlayerColor } from './player';
@@ -52,7 +53,10 @@ const { world, eventQueue } = await createPhysics();
 const sceneParts = createScene();
 const { scene, camera, renderer } = sceneParts;
 const hud = createHud();
-const playerHandle = createPlayer({ world, scene });
+const player = createPlayer({ world, scene });
+
+// Анимация повышения уровня: вспышка и пульс куба, кольцо по полу, столб и свет (см. level-up.ts).
+const levelUpEffect = createLevelUpEffect({ scene, playerCube: player.cube });
 
 // Искры при попадании: пул частиц в 3D-сцене (см. sparks.ts).
 const sparks = createSparks({ scene });
@@ -128,6 +132,7 @@ const settingsPanel = createSettingsPanel({
       game.startPolygon();
     }
   },
+  onPreviewLevelUp: levelUpEffect.play,
   onPresetLoad: (): void => {
     if (game.state.mode === 'polygon') {
       game.startPolygon();
@@ -142,7 +147,7 @@ const game: Game = createGame({
   world,
   eventQueue,
   scene,
-  playerHandle,
+  playerHandle: player.handle,
   sparks,
   sound,
   hud,
@@ -150,6 +155,7 @@ const game: Game = createGame({
   waves: WAVES,
   startWaveNumber: getStartWaveNumber(),
   onWaveStart: settingsPanel.setCurrentWave,
+  onLevelUp: levelUpEffect.play,
 });
 
 // ─── ИНТЕРФЕЙС И ВВОД ────────────────────────────────────────────────────────
@@ -254,10 +260,14 @@ renderer.setAnimationLoop((time: number): void => {
     turnHpBarsToCamera(game.enemies, camera);
     sparks.sync();
 
+    // Анимация уровня — в игровом времени кадра, как искры: на паузе (gameTime 0) замирает.
+    levelUpEffect.update(gameTime);
+
     // Свет от снарядов и искр: пул точечных источников (см. lighting.ts) каждый кадр переезжает на самые
     // горящие точки — свежие вспышки попаданий и летящие пули. Кандидатов берём с запасом (весь пул),
     // а распределение по источникам делает setGlowLights: он отберёт самые яркие.
     setGlowLights(sceneParts.glowLights, [
+      ...levelUpEffect.getGlowSources(),
       ...sparks.getBursts(MAX_GLOW_LIGHTS),
       ...getGlowSources(game.projectiles),
     ]);

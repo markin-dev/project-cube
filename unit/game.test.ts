@@ -33,6 +33,7 @@ type TestGame = {
   game: Game;
   hud: Record<keyof Hud, Mock>;
   showDamageNumber: Mock;
+  onLevelUp: Mock;
 };
 
 const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> => {
@@ -47,12 +48,13 @@ const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> =
     setVisible: vi.fn(),
   };
   const showDamageNumber = vi.fn();
+  const onLevelUp = vi.fn();
 
   const game = createGame({
     world,
     eventQueue,
     scene,
-    playerHandle: createPlayer({ world, scene }),
+    playerHandle: createPlayer({ world, scene }).handle,
     sparks: createSparks({ scene }),
     sound: { playHit: vi.fn(), playShot: vi.fn(), playDeath: vi.fn() },
     hud,
@@ -60,11 +62,12 @@ const createTestGame = async ({ waves }: { waves: Wave[] }): Promise<TestGame> =
     waves,
     startWaveNumber: 1,
     onWaveStart: vi.fn(),
+    onLevelUp,
   });
 
   game.startGame();
 
-  return { game, hud, showDamageNumber };
+  return { game, hud, showDamageNumber, onLevelUp };
 };
 
 const runSteps = (game: Game, count: number): void => {
@@ -311,6 +314,35 @@ describe('прокачка', () => {
     expect(game.state.level).toBe(2);
     expect(game.state.xp).toBe(10);
     expect(hud.setProgress).toHaveBeenLastCalledWith({ level: 2, xp: 10, needed: needForLevelUp(2) });
+  });
+
+  it('Должен сообщить о новом уровне', async () => {
+    config.LEVEL_XP_BASE = 10;
+
+    const { game, onLevelUp } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    runUntil({ game, isDone: () => game.enemies.size === 0, maxSeconds: 5 });
+
+    expect(onLevelUp).toHaveBeenCalledWith(2);
+  });
+
+  it('Должен сообщить один раз о последнем уровне, если их несколько сразу', async () => {
+    // База 5: пороги 5 и 14 — опыта normal (20) хватает на два уровня, до третьего.
+    config.LEVEL_XP_BASE = 5;
+
+    const { game, onLevelUp } = await createTestGame({ waves: [ONE_ENEMY_WAVE] });
+
+    clearWave(game);
+
+    expect(onLevelUp).toHaveBeenCalledExactlyOnceWith(3);
+  });
+
+  it('Не должен сообщать о новом уровне, пока опыта на него не хватает', async () => {
+    const { game, onLevelUp } = await createTestGame({ waves: [ONE_TINY_WAVE] });
+
+    clearWave(game);
+
+    expect(onLevelUp).not.toHaveBeenCalled();
   });
 
   it('Должен показать опыт 0 и порог первого уровня при старте', async () => {
